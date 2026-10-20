@@ -35,7 +35,7 @@ from . import stats as ST
 from . import vector as V
 from . import uncertainty as U
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 
 @dataclass
@@ -71,6 +71,8 @@ class QuickOptions:
     outlier_min: float = 0.5
     smooth_radius: int = 2
     smooth_tolerance: float = 0.5
+    edge_step: float = 0.5              # water level at the edge: fraction of the step to the first dry cell
+    edge_step_cap: float = 1.0
     steep_slope_pct: float = 10.0
     interpolation: str = "idw"          # idw | nearest (benchmarks/dem_recovery.py)
     min_fraction: float = 0.5
@@ -201,7 +203,8 @@ def run_quick(opt, progress=None, log=print):
             hand, flood, hvalid, grid, other_water=other, outlier_radius=opt.outlier_radius,
             outlier_k=opt.outlier_k, outlier_min=opt.outlier_min, smooth_radius=opt.smooth_radius,
             smooth_tolerance=opt.smooth_tolerance, interpolation=opt.interpolation,
-            steep_slope_pct=opt.steep_slope_pct, progress=_progress(prog, 0.2, 0.8))
+            steep_slope_pct=opt.steep_slope_pct, edge_step=opt.edge_step, edge_step_cap=opt.edge_step_cap,
+            progress=_progress(prog, 0.2, 0.8))
         depth, neg = SF.depth_from_surface(surf, hand, flood & hvalid)
         base = hand
         surf_label = "Water height above nearest drainage (m)"
@@ -210,7 +213,8 @@ def run_quick(opt, progress=None, log=print):
             dem, flood, valid, grid, other_water=other, outlier_radius=opt.outlier_radius,
             outlier_k=opt.outlier_k, outlier_min=opt.outlier_min, smooth_radius=opt.smooth_radius,
             smooth_tolerance=opt.smooth_tolerance, interpolation=opt.interpolation,
-            steep_slope_pct=opt.steep_slope_pct, progress=_progress(prog, 0.2, 0.8))
+            steep_slope_pct=opt.steep_slope_pct, edge_step=opt.edge_step, edge_step_cap=opt.edge_step_cap,
+            progress=_progress(prog, 0.2, 0.8))
         depth, neg = SF.depth_from_surface(surf, dem, flood)
         base = dem
         surf_label = "Water-surface elevation (DEM units)"
@@ -254,7 +258,8 @@ def run_quick(opt, progress=None, log=print):
                 fracs.append(np.where(valid, fr, np.nan))
         kw = dict(outlier_radius=opt.outlier_radius, outlier_k=opt.outlier_k, outlier_min=opt.outlier_min,
                   smooth_radius=opt.smooth_radius, smooth_tolerance=opt.smooth_tolerance,
-                  interpolation=opt.interpolation, steep_slope_pct=opt.steep_slope_pct)
+                  interpolation=opt.interpolation, steep_slope_pct=opt.steep_slope_pct,
+                  edge_step=opt.edge_step, edge_step_cap=opt.edge_step_cap)
         try:
             unc, usum = U.run_ensemble(
                 dem, valid if hand is None else (valid & np.isfinite(hand)), grid, flood,

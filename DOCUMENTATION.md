@@ -1,4 +1,4 @@
-# FloodDepth 0.4 — technical documentation
+# FloodDepth 0.4.1 — technical documentation
 
 This document describes what FloodDepth computes, every decision it takes
 automatically, the uncertainty model, how it was validated, and where it
@@ -194,16 +194,24 @@ these refinements:
    in a DSM). Waterline cells on ground steeper than 10 % are never dropped: on
    an escarpment edge elevations change by metres per cell for real. (Without
    this protection the Mai Mahiu trace produced 130 m "depths".)
-3. **Surface.** The kept edge elevations are interpolated over the flood by
+3. **Edge water level.** The waterline lies somewhere between the last wet
+   cell and the first dry one, so the water level at a waterline cell is
+   placed halfway up the step from its ground to the lowest dry 4-neighbour,
+   lifted by at most 1 m. Taking the wet cell's own ground (depth 0 at the
+   edge, as in FwDET) always underestimates; the halfway step cuts the
+   flat-floodplain underestimate by 40–80 % (§ 9.3). The cap keeps a cliff,
+   bank or embankment from lifting the surface. Set the share to 0 for the
+   FwDET convention.
+4. **Surface.** The kept edge water levels are interpolated over the flood by
    inverse distance (`gdal.FillNodata`, C++) — the default — or allocated from
    the nearest waterline cell (FwDET v1; exact Euclidean allocation by jump
    flooding in NumPy, schedule bounded with `gdal.ComputeProximity`). The
    default is empirical (§ 9.3): inverse distance was as good or better in
    every benchmark scenario.
-4. **Smoothing.** A focal mean (radius 2 cells) over flood cells, applied only
+5. **Smoothing.** A focal mean (radius 2 cells) over flood cells, applied only
    where it changes the surface by less than 0.5 m, so it never averages across
    an escarpment or gully.
-5. **Depth** = WSE − DEM inside the extent. Cells where the ground is above the
+6. **Depth** = WSE − DEM inside the extent. Cells where the ground is above the
    surface get depth 0 and are counted (reported share).
 
 **HAND method.** The same procedure applied to a HAND raster gives the water
@@ -370,47 +378,53 @@ gorge); DEMs: FABDEM, ALOS AW3D30 and TanDEM-X (from the project's national
 mosaics) and Copernicus GLO-30. *Same DEM* isolates the method; *other DEM*
 adds the DEM-choice error and tests the uncertainty band (P10–P90, 12 members).
 
-Same DEM, mean absolute error (m) of the default (inverse distance) vs
-nearest-edge allocation:
+Same DEM — mean absolute error and bias (m):
 
-| Site | Scenario | True mean depth | IDW MAE | Nearest MAE | IDW bias |
+| Site | Scenario | True mean | Default (IDW, edge halfway, cap 1 m) | Edge at the wet cell (FwDET) | Nearest edge |
 |---|---|---|---|---|---|
-| Nyando | valley trend 10 % | 3.88 | 1.10 | 2.99 | +0.05 |
-| Nyando | valley trend 25 % | 2.84 | 1.07 | 2.40 | +0.51 |
-| Nyando | HAND 1 m | 0.67 | 0.38 | 0.40 | −0.29 |
-| Nyando | HAND 3 m | 2.26 | 0.97 | 1.08 | −0.91 |
-| Mai Mahiu | valley trend 10 % | 20.7 | 3.52 | 13.27 | −0.64 |
-| Mai Mahiu | valley trend 25 % | 22.4 | 5.47 | 13.73 | −0.26 |
-| Mai Mahiu | HAND 1 m | 0.59 | 0.63 | 0.63 | −0.31 |
-| Mai Mahiu | HAND 3 m | 1.73 | 1.43 | 1.40 | −1.29 |
+| Nyando | valley trend 10 % | 3.88 | 1.07 (+0.37) | 1.10 (+0.05) | 2.99 |
+| Nyando | valley trend 25 % | 2.84 | 1.10 (+0.74) | 1.07 (+0.51) | 2.40 |
+| Nyando | HAND 1 m | 0.67 | **0.24 (−0.06)** | 0.38 (−0.29) | 0.40 |
+| Nyando | HAND 3 m | 2.26 | **0.70 (−0.52)** | 0.97 (−0.91) | 1.08 |
+| Mai Mahiu | valley trend 10 % | 20.7 | 3.39 (−0.05) | 3.52 (−0.64) | 13.27 |
+| Mai Mahiu | valley trend 25 % | 22.4 | 5.38 (+0.39) | 5.47 (−0.26) | 13.72 |
+| Mai Mahiu | HAND 1 m | 0.59 | **0.51 (+0.09)** | 0.63 (−0.31) | 0.63 |
+| Mai Mahiu | HAND 3 m | 1.73 | **1.10 (−0.81)** | 1.43 (−1.29) | 1.40 |
 
-Other DEM (default settings), share of true depths inside the ensemble
+Other DEM (default settings) — share of true depths inside the ensemble
 P10–P90:
 
 | Site | Scenario | ALOS | TanDEM-X | other |
 |---|---|---|---|---|
-| Nyando | valley trend 10 % / 25 % | 88 % / 85 % | 84 % / 82 % | Copernicus 85 % / 83 % |
-| Nyando | HAND 1 m / 3 m | 81 % / 77 % | 88 % / 83 % | FABDEM 61 % / 62 % |
-| Mai Mahiu | valley trend 10 % / 25 % | 82 % / 84 % | 82 % / 83 % | Copernicus 94 % / 86 % |
-| Mai Mahiu | HAND 1 m / 3 m | 82 % / 67 % | 85 % / 69 % | FABDEM 72 % / 50 % |
+| Nyando | valley trend 10 % / 25 % | 87 % / 84 % | 82 % / 80 % | Copernicus 82 % / 81 % |
+| Nyando | HAND 1 m / 3 m | 85 % / 80 % | 91 % / 85 % | FABDEM 66 % / 65 % |
+| Mai Mahiu | valley trend 10 % / 25 % | 81 % / 85 % | 81 % / 84 % | Copernicus 96 % / 86 % |
+| Mai Mahiu | HAND 1 m / 3 m | 86 % / 74 % | 89 % / 75 % | FABDEM 79 % / 60 % |
 
 What this decided and shows:
 
 * **Inverse distance** is the default: two to four times better than
-  nearest-edge where the water surface varies across a wide extent (valley
-  trend), and within 0.1 m of it in the HAND scenarios (nearest-edge is
-  0.03 m better at Mai Mahiu, HAND 3 m).
-* The **method-error term** (blocked cross-validation of the waterline) was
-  added because without it the band covered only 33–65 % of true depths; with
-  it, 82–94 % for valley-type floods (P10–P90 nominally covers 80 %).
-* **Known bias — wide flat floodplains.** When the water surface follows the
-  drainage (HAND-type flooding over hundreds of km²), the edge method
-  underestimates depth: −0.3 m at 1 m above drainage, −0.9 to −1.3 m at 3 m.
-  The edge then lies far from the channel on rising ground while interior
-  cells are lower. This is the documented FwDET behaviour in broad floodplains;
-  the band does not fully cover it (50–88 %). Where the flood is a broad
-  river-fed sheet, treat the depths as a lower estimate, or use the HAND
-  method with a HAND raster.
+  nearest-edge allocation where the water surface varies across a wide extent
+  (valley trend), and as good or better in the HAND scenarios.
+* **Edge water level halfway up the step (cap 1 m)** is the default: it lowers
+  the error in 7 of 8 scenarios and cuts the flat-floodplain underestimate by
+  40–80 % (Nyando HAND 3 m: bias −0.91 → −0.52 m; HAND 1 m: −0.29 → −0.06 m).
+  The cost is a small overestimate in the Nyando valley-trend cases (+0.3 m).
+  Uncapped, cliffs at Mai Mahiu inflated depths by 3 m.
+* **Tried and dropped — a HAND-shaped surface.** HAND computed from the DEM
+  (QEHT routing, streams ≥ 0.1 km²; r = 0.91–0.94 against ASF GLO-30 HAND) was
+  used to interpolate the edge height above drainage instead of the edge
+  elevation, chosen per flood region by cross-validation. It did not reduce the
+  underestimate (Nyando HAND 3 m bias −0.91 m with either surface) and the
+  cross-validation kept the elevation surface almost everywhere: the cause of
+  the underestimate is where the waterline sits within the edge cells, not the
+  shape of the surface.
+* The **method-error term** (blocked cross-validation of the waterline) brings
+  the P10–P90 coverage to 80–96 % for valley-type floods (nominal 80 %).
+* **Remaining bias — wide flat floodplains.** With water 3 m above the drainage
+  over hundreds of km², depths are still about 0.5–0.8 m low and the band
+  covers 60–85 % of true depths. Treat depths of broad river-fed sheets as a
+  lower estimate.
 
 ### 9.4 Case studies
 
@@ -428,20 +442,22 @@ measurement for these events.
 | Permanent water | WorldCover class 80: 279 km² removed (Winam Gulf) | — | — |
 | DEM (σ) | FABDEM 30 m (1.5 m) | TanDEM-X 30 m (2.0 m) | project clip (2.0 m assumed) |
 | Flooded area | 71.4 km² (P10–P90 62–116) | 2.19 km² (1.1–24.6) | 16.7 km² (11.9–18.6) |
-| Mean depth, all / interior | 0.15 / 0.16 m | 0.90 / 2.00 m | 0.97 / 1.08 m |
-| Interior median, P90 | 0.04, 0.33 m | 0.95, 4.48 m | 0.73, 2.84 m |
-| Mean depth P10–P90 (ensemble) | 0.17–0.21 m | 1.30–1.99 m | 0.85–1.79 m |
+| Mean depth, all / interior | 0.17 / 0.18 m | 1.33 / 2.41 m | 1.10 / 1.22 m |
+| Interior median, P90 | 0.06, 0.38 m | 1.43, 5.22 m | 0.89, 3.06 m |
+| Mean depth P10–P90 (ensemble) | 0.21–0.25 m | 1.59–2.32 m | 1.03–2.05 m |
 | Method error (cross-validation) | 0.08 m | 2.52 m | 1.01 m |
 | Evidence | observed water 70.9 km², steep 0.5 km² | erosion / deposition 1.32, inundation 0.14, steep flow path 0.73 km² | observed water 16.4 km², steep 0.3 km² |
-| Mean P90 − P10 by evidence | 0.46 m | 3.4 m / 2.7 m / 5.3 m | 2.8 m |
-| Run time | 220 s | 15 s | 56 s |
+| Mean edge lift (§ 6 step 3) | 0.02 m | 0.45 m | 0.13 m |
+| Mean P90 − P10 by evidence | 0.53 m | 3.8 m / 3.0 m / 5.9 m | 3.1 m |
+| Run time | 223 s | 16 s | 57 s |
 
 *Nyando.* The mapped water is mostly a shallow sheet over the Ahero and West
 Kano rice schemes and the fringes of the plains (interior median 0.04 m); the
 coherent bodies along the Nyando reach and the south-west plains show
 0.5–1.5 m. 41 % of the flood cells are waterline cells (depth ≈ 0 by
 construction) because the 30 m extent is fragmented; the report shows the
-interior statistics beside the all-cell ones for this reason. Without the
+interior statistics beside the all-cell ones for this reason. The edge lift
+is small here (0.02 m): the Kano plains have almost no step at the flood edge. Without the
 permanent-water layer the 279 km² of Winam Gulf were counted as flood with
 zero depth — a permanent-water source is essential on lake shores. Given § 9.3,
 these depths are more likely low than high.
@@ -461,7 +477,7 @@ event — where the evidence is weak the output says so.
 *Juba (Buulo Gaduud–Afmadow).* The Browser uint16 export is rescaled
 (reflectance × 65 535), so no Sentinel-2 offset is applied (the report says
 why). 16.7 km² of water on the floodplain within the scene; interior mean
-1.08 m, P90 2.84 m; DEM error is the largest term (σ assumed 2 m because the
+1.22 m, P90 3.06 m; DEM error is the largest term (σ assumed 2 m because the
 file name does not name the product — set it when known).
 
 ## 10. Limitations and good practice
@@ -476,9 +492,9 @@ file name does not name the product — set it when known).
 * **DEMs.** Prefer a bare-earth DEM (LiDAR, FABDEM) to a surface model (GLO-30,
   ALOS, TanDEM-X): in a DSM the edge sits on canopy and roofs. Global 30 m DEMs
   smooth channels — channel depths are underestimated.
-* **Wide flat floodplains.** The edge method underestimates depth when the
-  water surface follows the drainage rather than being near-level across the
-  extent (§ 9.3).
+* **Wide flat floodplains.** The edge method still underestimates depth (about
+  0.5–0.8 m with water 3 m above the drainage) when the water surface follows
+  the drainage across a broad plain (§ 9.3).
 * **Timing.** The image shows the water at the overpass, which may be before or
   after the peak.
 * **Flood traces** mix inundation, scour and deposition; treat depths in

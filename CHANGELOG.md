@@ -2,6 +2,19 @@
 
 All notable changes to FloodDepth are recorded here.
 
+## [0.4.1] — 2026-10-20
+
+### Changed
+- **Edge water level halfway up the step** to the first dry cell (capped at 1 m) instead of at
+  the wet cell's ground. Depth-recovery benchmark: lower error in 7 of 8 scenarios; the
+  flat-floodplain underestimate falls by 40–80 % (Nyando, water 3 m above drainage: bias −0.91 →
+  −0.52 m). Advanced parameters *Edge water level* (0 = FwDET convention) and *maximum lift*.
+- CI byte-compiles every file before the suites (the Processing layer is not imported by them).
+
+### Removed
+- The HAND-shaped surface trial merged from `floodplain-hand` (`core/hand.py`, `core/hydro/`,
+  per-region surface choice): it did not reduce the underestimate (DOCUMENTATION.md § 9.3).
+
 ## [0.4.0] — 2026-10-20 (redesign)
 
 The 0.3 package was audited in QGIS 3.34 before this release

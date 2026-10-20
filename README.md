@@ -6,7 +6,7 @@ Quick, defensible flood-depth estimates from a satellite image of a flood (or a
 flood-extent layer) and a DEM, with uncertainty bands, computed entirely inside
 QGIS.
 
-Author: Edmond Akello · License: GPL-3.0-or-later · QGIS 3.28 – 4.x · version 0.4.0 (experimental)
+Author: Edmond Akello · License: GPL-3.0-or-later · QGIS 3.28 – 4.x · version 0.4.1 (experimental)
 
 ## What it does
 
@@ -96,7 +96,7 @@ The core is importable without QGIS:
     python -m flooddepth.tests.test_surface     # analytic surfaces with known depths
     python -m flooddepth.tests.test_pipeline    # the whole workflow on a synthetic site
 
-`tools/dev/ci_pure.sh` runs the 7 pure suites (120 checks); `tools/dev/run_tests.sh` adds the
+`tools/dev/ci_pure.sh` runs the 7 pure suites (124 checks); `tools/dev/run_tests.sh` adds the
 QGIS smoke test (`tests/qgis_smoke.py`, 32 checks: every tool through real Processing).
 GitHub Actions runs the pure suites and a Bandit scan on every push.
 
@@ -105,8 +105,9 @@ GitHub Actions runs the pure suites and a Bandit scan on every push.
 * **Classification** — all 446 hand-labelled chips of Sen1Floods11 (11 flood events, 11 countries),
   fully automatic: Sentinel-2 pooled CSI 0.74 (F1 0.85, area bias 1.01), Sentinel-1 VV 0.45.
 * **Depth** — known water surfaces imposed on FABDEM, ALOS, TanDEM-X and GLO-30 + HAND at Nyando and
-  Mai Mahiu; the uncertainty band covers 82–94 % of true depths for valley-type floods; a known
-  underestimation in wide flat floodplains is documented.
+  Mai Mahiu; the uncertainty band covers 80–96 % of true depths for valley-type floods; the edge
+  water level is placed halfway up the edge step, which cuts the flat-floodplain underestimate by
+  40–80 % (a smaller residual is documented).
 * **Case studies** — Nyando (Kano plains, 5 May 2024), Mai Mahiu (29 April 2024 flash flood, flood
   trace), Buulo Gaduud–Afmadow (Juba, 3 Dec 2023).
 
@@ -133,4 +134,4 @@ from a clone: `bash tools/dev/make_zip.sh` → `dist/FloodDepth_<version>.zip`.
 ## Citation
 
 Akello, E. (2026). *FloodDepth: flood extent, depth and uncertainty from satellite imagery and
-a DEM for QGIS* (version 0.4.0). https://github.com/EdmondAkello/Flood-Depth
+a DEM for QGIS* (version 0.4.1). https://github.com/EdmondAkello/Flood-Depth

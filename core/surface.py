@@ -11,8 +11,15 @@ Method (boundary-elevation method; Cohen et al. 2018, 2019 "FwDET")
    nothing about the water level. Sampling those edges is the main bias
    of simple boundary methods (FwDET v2.0 handles the domain edge the same
    way).
-2. The water-surface elevation at a waterline cell is the terrain
-   elevation there (depth ~ 0 at the edge of the water).
+2. The water level at a waterline cell lies between the ground of that
+   last wet cell and the ground of the first dry cell next to it. It is
+   placed `edge_step` (0.5 = halfway) up that step to the lowest dry
+   4-neighbour, capped at `edge_step_cap` (1 m). Taking the wet cell's own
+   ground (depth 0 at the edge, as in FwDET) always underestimates: on
+   the HAND benchmarks the halfway step cuts the mean absolute error by
+   20-37 % and the flat-floodplain underestimate by 40-80 %
+   (benchmarks/dem_recovery.py). The cap keeps a cliff or embankment from
+   lifting the surface.
 3. Outliers: each waterline value is compared with the mean of the
    waterline values around it (a window of `outlier_radius` cells).
    Values more than `outlier_k` robust standard deviations (1.4826 x MAD)
@@ -243,7 +250,8 @@ def fill_from_points(values, known, grid, max_search=None, smoothing_iterations=
 def estimate_surface(elev, flood, valid, grid, other_water=None, blocked=None,
                      outlier_radius=15, outlier_k=3.0, outlier_min=0.5,
                      smooth_radius=2, smooth_tolerance=0.5, interpolation="idw",
-                     steep_slope_pct=10.0, max_search_cells=None, progress=None):
+                     steep_slope_pct=10.0, edge_step=0.5, edge_step_cap=1.0,
+                     max_search_cells=None, progress=None):
     """Water-surface (or HAND water-height) raster over the flood cells.
 
     Returns (surface float32 with NaN outside the flood, info dict, waterline
@@ -283,6 +291,24 @@ def estimate_surface(elev, flood, valid, grid, other_water=None, blocked=None,
         keep = line
         info["waterline_used"] = int(line.sum())
         info["waterline_dropped"] = 0
+    if edge_step and edge_step > 0:
+        # the waterline lies between the last wet cell and the first dry one:
+        # place the edge water level `edge_step` of the way up the step to the
+        # lowest dry 4-neighbour (0.5 = halfway, unbiased if the level is equally
+        # likely anywhere in the step), capped at edge_step_cap metres
+        dry = valid & ~flood
+        if other_water is not None:
+            dry &= ~np.asarray(other_water, bool)
+        zd = np.where(dry, elev, np.inf).astype("float64")
+        nb = np.full(elev.shape, np.inf)
+        nb[1:, :] = np.minimum(nb[1:, :], zd[:-1, :])
+        nb[:-1, :] = np.minimum(nb[:-1, :], zd[1:, :])
+        nb[:, 1:] = np.minimum(nb[:, 1:], zd[:, :-1])
+        nb[:, :-1] = np.minimum(nb[:, :-1], zd[:, 1:])
+        rise = np.where(keep & np.isfinite(nb), np.clip(nb - elev, 0.0, None), 0.0)
+        lift = np.minimum(edge_step * rise, edge_step_cap).astype("float32")
+        elev = np.where(keep, elev + lift, elev).astype("float32")
+        info["edge_lift_mean_m"] = float(lift[keep].mean()) if keep.any() else 0.0
     step(0.3, "Interpolating the water surface")
     # work inside the flood's bounding box (+ margin): the waterline lies in it
     rr, cc = np.nonzero(flood)
@@ -311,104 +337,6 @@ def estimate_surface(elev, flood, valid, grid, other_water=None, blocked=None,
     info["unfilled_cells"] = int((flood & ~np.isfinite(surf)).sum())
     step(1.0, "")
     return surf, info, keep, line & ~keep
-
-
-def cv_residuals(elev, flood, valid, grid, other_water=None, interpolation="idw", folds=3, seed=0):
-    """Spatially blocked cross-validation of an edge-interpolated surface.
-
-    Waterline cells are held out in square blocks whose side is twice the
-    median distance from a flood cell to the waterline (so a held-out cell
-    is predicted from about as far away as an interior cell), predicted
-    from the remaining waterline, and compared with their own value.
-    The held-out tiles depend only on the waterline, the grid and the seed,
-    so two surfaces (DEM, HAND) scored with the same seed share the folds.
-    Returns (residual array, NaN except at held-out cells; block size).
-    """
-    rng = np.random.default_rng(seed)
-    line = waterline(flood, valid, other_water)
-    res = np.full(flood.shape, np.nan, dtype="float32")
-    if line.sum() < 30:
-        return res, 0
-    d = proximity_cells(line)
-    b = int(max(4, min(200, 2 * np.median(d[flood]))))
-    rows, cols = flood.shape
-    br, bc = np.indices((rows, cols))
-    tile = (br // b) * ((cols + b - 1) // b) + (bc // b)
-    ids = np.unique(tile[line])
-    held_any = np.zeros_like(line)
-    for _ in range(folds):
-        free = ids[~np.isin(ids, np.unique(tile[held_any & line]))] if held_any.any() else ids
-        pool = free if free.size >= max(1, int(0.2 * ids.size)) else ids
-        held_ids = rng.choice(pool, max(1, int(0.2 * ids.size)), replace=False)
-        held = line & np.isin(tile, held_ids)
-        train = line & ~held
-        if train.sum() < 10 or held.sum() < 5:
-            continue
-        if interpolation == "idw":
-            pred = fill_from_points(elev, train, grid)
-        else:
-            pred, _ = fill_nearest(elev, train, grid.cell_x, grid.cell_y, targets=held)
-        r = (elev - pred)
-        res = np.where(held & np.isfinite(r), r, res)
-        held_any |= held
-    return res, b
-
-
-def estimate_surface_auto(dem, hand, flood, valid, grid, other_water=None, cv_seed=0, min_cv_cells=10,
-                          **kw):
-    """Depth from the better of two edge surfaces, chosen per flood region.
-
-    * elevation surface: edge DEM elevations interpolated (planar /
-      valley-trend water surfaces, lakes, backwater);
-    * HAND surface: edge heights above drainage interpolated, depth =
-      h - HAND (water levels that follow the drainage across wide plains).
-    For each connected flood region the surface whose blocked
-    cross-validation error on that region's waterline is lower is used
-    (regions with fewer than `min_cv_cells` held-out cells take the
-    scene-wide winner). Returns (depth, wse, info, used, dropped, choice)
-    where choice is True where the HAND surface was used.
-    """
-    from .classify import label_components
-    kw = dict(kw)
-    progress = kw.pop("progress", None)
-    v = np.asarray(valid, bool) & np.isfinite(dem) & np.isfinite(hand)
-    fl = np.asarray(flood, bool) & v
-    s_e, info_e, used, dropped = estimate_surface(dem, fl, v, grid, other_water=other_water, **kw)
-    d_e, _ = depth_from_surface(s_e, dem, fl)
-    s_h, info_h, used_h, dropped_h = estimate_surface(hand, fl, v, grid, other_water=other_water, **kw)
-    d_h, _ = depth_from_surface(s_h, hand, fl)
-    interp = kw.get("interpolation", "idw")
-    r_e, block = cv_residuals(dem, fl, v, grid, other_water, interp, seed=cv_seed)
-    r_h, _ = cv_residuals(hand, fl, v, grid, other_water, interp, seed=cv_seed)
-    both = np.isfinite(r_e) & np.isfinite(r_h)
-    glob_e = float(np.mean(np.abs(r_e[both]))) if both.any() else float("nan")
-    glob_h = float(np.mean(np.abs(r_h[both]))) if both.any() else float("nan")
-    hand_wins_global = bool(both.any() and glob_h < glob_e)
-    lab, n = label_components(fl)
-    choice_by = np.full(n + 1, hand_wins_global)
-    if n and both.any():
-        cnt = np.bincount(lab[both], minlength=n + 1)
-        se = np.bincount(lab[both], weights=np.abs(r_e[both]), minlength=n + 1)
-        sh = np.bincount(lab[both], weights=np.abs(r_h[both]), minlength=n + 1)
-        enough = cnt >= min_cv_cells
-        choice_by[enough] = sh[enough] < se[enough]
-    choice_by[0] = False
-    choice = choice_by[lab] & fl
-    depth = np.where(choice, d_h, d_e).astype("float32")
-    depth = np.where(fl, depth, np.nan).astype("float32")
-    wse = np.where(fl, dem + np.nan_to_num(depth), np.nan).astype("float32")
-    res = np.where(choice, r_h, r_e)
-    info = dict(info_e)
-    info.update({"surface_choice": "per flood region (blocked cross-validation)",
-                 "cv_mae_elevation_m": glob_e, "cv_mae_hand_m": glob_h, "cv_block_cells": block,
-                 "hand_share": float(choice.sum() / max(1, fl.sum())),
-                 "regions": int(n), "regions_hand": int(choice_by[1:].sum()) if n else 0,
-                 "waterline_dropped_hand": info_h.get("waterline_dropped", 0)})
-    fin = res[np.isfinite(res)]
-    if fin.size:
-        med = np.median(fin)
-        info["method_sd_m"] = float(1.4826 * np.median(np.abs(fin - med)))
-    return depth, wse, info, used, dropped, choice
 
 
 def slope_percent(elev, cell_x, cell_y):

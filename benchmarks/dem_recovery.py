@@ -29,10 +29,8 @@ import time
 import numpy as np
 
 from ..core import raster as R, surface as SF, classify as C, uncertainty as U, stats as ST
-from ..core.hand import compute_hand
 
 INTERP = os.environ.get("FD_INTERP", "idw")
-STREAM_KM2 = float(os.environ.get("FD_STREAM_KM2", "0.1"))
 
 SITES = {  # bbox lon0, lat0, lon1, lat1 ; DEM file stems in dem_dir
     "nyando": ((34.82, -0.33, 35.02, -0.13), ["fabdem", "alos", "tandemx"]),
@@ -98,11 +96,12 @@ def run(site, dem_dir, hand_dir, members=12):
     out = {"site": site, "grid": f"{grid.cols}x{grid.rows} @ {grid.cell_x:.1f} m", "interp_default": INTERP,
            "cases": []}
     settings = {
-        "nearest edge, smooth 2": {"interpolation": "nearest"},
-        "nearest edge, no outlier screen": {"interpolation": "nearest", "outlier_k": 0},
-        "inverse distance, smooth 2": {"interpolation": "idw"},
-        "inverse distance, no smoothing": {"interpolation": "idw", "smooth_radius": 0},
-        "inverse distance, no outlier screen": {"interpolation": "idw", "outlier_k": 0},
+        "default (IDW, edge halfway up the step, cap 1 m)": {},
+        "edge at the wet cell (FwDET, step 0)": {"edge_step": 0.0},
+        "edge step uncapped": {"edge_step_cap": 99.0},
+        "nearest edge, smooth 2": {"interpolation": "nearest", "edge_step": 0.0},
+        "inverse distance, no smoothing": {"smooth_radius": 0},
+        "inverse distance, no outlier screen": {"outlier_k": 0},
     }
     scenarios = [("valley trend, 10 % flooded", "fabdem", lambda: truth(arr["fabdem"], 0.10, rad)),
                  ("valley trend, 25 % flooded", "fabdem", lambda: truth(arr["fabdem"], 0.25, rad)),
@@ -115,24 +114,6 @@ def run(site, dem_dir, hand_dir, members=12):
                 "true_mean_m": float(np.nanmean(true_d)), "true_p90_m": float(np.nanpercentile(true_d, 90)),
                 "same_dem": {}, "other_dem": {}}
         valid = np.isfinite(arr[tdem])
-        hand_int, _ = compute_hand(arr[tdem], valid, grid.cell_x, grid.cell_y, STREAM_KM2)
-        for sname, fn in (("auto: per-region choice (DEM + internal HAND)", "auto"),
-                          ("HAND surface only (internal HAND)", "hand")):
-            t = time.time()
-            if fn == "auto":
-                d, _w, ainfo, _u, _dr, ch = SF.estimate_surface_auto(arr[tdem], hand_int, flood, valid, grid)
-            else:
-                v2 = valid & np.isfinite(hand_int)
-                s_, _i, _u, _dr = SF.estimate_surface(hand_int, flood & v2, v2, grid)
-                d, _ = SF.depth_from_surface(s_, hand_int, flood & v2)
-                ainfo = {}
-            e = ST.error_stats(d, true_d)
-            e["seconds"] = round(time.time() - t, 2)
-            if fn == "auto":
-                e["hand_share"] = ainfo.get("hand_share")
-                e["cv_mae_elevation_m"] = ainfo.get("cv_mae_elevation_m")
-                e["cv_mae_hand_m"] = ainfo.get("cv_mae_hand_m")
-            case["same_dem"][sname] = e
         for sname, kw in settings.items():
             t = time.time()
             s_, info, _, _ = SF.estimate_surface(arr[tdem], flood, valid, grid, **kw)

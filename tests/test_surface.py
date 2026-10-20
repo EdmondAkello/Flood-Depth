@@ -114,8 +114,27 @@ def test_outliers_and_steep():
     check("smoothing skipped where it would change the surface > tolerance", info.get("smoothing_skipped_cells", 0) > 0)
 
 
+def test_edge_step():
+    print("\n5. Edge water level between the last wet and first dry cell")
+    z = np.full((60, 60), 2.0, dtype="float32")    # banks 2 m above a flat floor
+    z[15:45, 15:45] = 0.0                            # floor; water 1 m deep fills it
+    flood = z < 1.0
+    g = grid(60, 60)
+    v = np.ones_like(flood)
+    s0, i0, _, _ = SF.estimate_surface(z, flood, v, g, edge_step=0.0)
+    s1, i1, _, _ = SF.estimate_surface(z, flood, v, g, edge_step=0.5, edge_step_cap=1.0)
+    s2, _, _, _ = SF.estimate_surface(z, flood, v, g, edge_step=0.5, edge_step_cap=0.4)
+    d0, _ = SF.depth_from_surface(s0, z, flood)
+    d1, _ = SF.depth_from_surface(s1, z, flood)
+    d2, _ = SF.depth_from_surface(s2, z, flood)
+    check("edge at the wet cell: depth 0 (underestimate)", abs(np.nanmean(d0)) < 1e-6)
+    check("halfway up the 2 m step: the true 1 m", abs(np.nanmean(d1) - 1.0) < 1e-5, f"{np.nanmean(d1):.3f} m")
+    check("the cap limits the lift", abs(np.nanmean(d2) - 0.4) < 1e-5, f"{np.nanmean(d2):.3f} m")
+    check("lift reported", abs(i1["edge_lift_mean_m"] - 1.0) < 1e-6)
+
+
 def test_depth_helpers():
-    print("\n5. Depth helpers")
+    print("\n6. Depth helpers")
     d, neg = SF.depth_from_surface(np.array([[2.0, 1.0]]), np.array([[1.0, 1.5]]), np.array([[True, True]]))
     check("negative depth clipped to 0 and counted", d[0, 1] == 0 and neg == 1)
     c = SF.depth_constant_stage(10.0, np.array([[8.0, 12.0, np.nan]]))
@@ -129,5 +148,6 @@ if __name__ == "__main__":
     test_waterline()
     test_plane()
     test_outliers_and_steep()
+    test_edge_step()
     test_depth_helpers()
     finish("test_surface")

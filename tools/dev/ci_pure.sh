@@ -10,6 +10,12 @@ ln -s "$REPO" "$WORK/flooddepth"
 cd "$WORK"
 PY=${PY:-python3}
 status=0
+# every file must at least compile (the Processing layer is not imported by the pure suites)
+if ! $PY -m compileall -q flooddepth > /dev/null; then
+  echo "compileall: FAILED"; $PY -m compileall -q flooddepth; status=1
+else
+  echo "compileall: ok"
+fi
 total=0
 for f in flooddepth/tests/test_*.py; do
   m=$(basename "$f" .py)

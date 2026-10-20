@@ -64,6 +64,9 @@ class SurfaceFromExtentAlgorithm(FloodDepthAlgorithm):
             defaultValue=0)))
         self.number("SMOOTH", "Smoothing radius (cells)", "int", 2, 0, 50, adv=True)
         self.number("SMOOTH_TOL", "Smoothing tolerance (m)", "double", 0.5, 0.0, adv=True)
+        self.number("EDGE_STEP", "Edge water level: share of the step to the first dry cell (0 = FwDET, 0.5 = halfway)",
+                    "double", 0.5, 0.0, 1.0, adv=True)
+        self.number("EDGE_CAP", "Edge water level: maximum lift (m)", "double", 1.0, 0.0, adv=True)
         self.number("OUT_RADIUS", "Edge outlier window radius (cells)", "int", 10, 0, 200, adv=True)
         self.number("OUT_K", "Edge outlier limit (robust SD)", "double", 3.0, 0.0, adv=True)
         self.number("OUT_MIN", "Edge outlier minimum (m)", "double", 0.5, 0.0, adv=True)
@@ -133,6 +136,8 @@ class SurfaceFromExtentAlgorithm(FloodDepthAlgorithm):
                 outlier_min=self.parameterAsDouble(parameters, "OUT_MIN", context),
                 smooth_radius=self.parameterAsInt(parameters, "SMOOTH", context),
                 smooth_tolerance=self.parameterAsDouble(parameters, "SMOOTH_TOL", context),
+                edge_step=self.parameterAsDouble(parameters, "EDGE_STEP", context),
+                edge_step_cap=self.parameterAsDouble(parameters, "EDGE_CAP", context),
                 interpolation=INTERP[self.parameterAsEnum(parameters, "INTERP", context)],
                 steep_slope_pct=self.parameterAsDouble(parameters, "STEEP", context),
                 progress=self.progress(feedback))
