@@ -313,6 +313,104 @@ def estimate_surface(elev, flood, valid, grid, other_water=None, blocked=None,
     return surf, info, keep, line & ~keep
 
 
+def cv_residuals(elev, flood, valid, grid, other_water=None, interpolation="idw", folds=3, seed=0):
+    """Spatially blocked cross-validation of an edge-interpolated surface.
+
+    Waterline cells are held out in square blocks whose side is twice the
+    median distance from a flood cell to the waterline (so a held-out cell
+    is predicted from about as far away as an interior cell), predicted
+    from the remaining waterline, and compared with their own value.
+    The held-out tiles depend only on the waterline, the grid and the seed,
+    so two surfaces (DEM, HAND) scored with the same seed share the folds.
+    Returns (residual array, NaN except at held-out cells; block size).
+    """
+    rng = np.random.default_rng(seed)
+    line = waterline(flood, valid, other_water)
+    res = np.full(flood.shape, np.nan, dtype="float32")
+    if line.sum() < 30:
+        return res, 0
+    d = proximity_cells(line)
+    b = int(max(4, min(200, 2 * np.median(d[flood]))))
+    rows, cols = flood.shape
+    br, bc = np.indices((rows, cols))
+    tile = (br // b) * ((cols + b - 1) // b) + (bc // b)
+    ids = np.unique(tile[line])
+    held_any = np.zeros_like(line)
+    for _ in range(folds):
+        free = ids[~np.isin(ids, np.unique(tile[held_any & line]))] if held_any.any() else ids
+        pool = free if free.size >= max(1, int(0.2 * ids.size)) else ids
+        held_ids = rng.choice(pool, max(1, int(0.2 * ids.size)), replace=False)
+        held = line & np.isin(tile, held_ids)
+        train = line & ~held
+        if train.sum() < 10 or held.sum() < 5:
+            continue
+        if interpolation == "idw":
+            pred = fill_from_points(elev, train, grid)
+        else:
+            pred, _ = fill_nearest(elev, train, grid.cell_x, grid.cell_y, targets=held)
+        r = (elev - pred)
+        res = np.where(held & np.isfinite(r), r, res)
+        held_any |= held
+    return res, b
+
+
+def estimate_surface_auto(dem, hand, flood, valid, grid, other_water=None, cv_seed=0, min_cv_cells=10,
+                          **kw):
+    """Depth from the better of two edge surfaces, chosen per flood region.
+
+    * elevation surface: edge DEM elevations interpolated (planar /
+      valley-trend water surfaces, lakes, backwater);
+    * HAND surface: edge heights above drainage interpolated, depth =
+      h - HAND (water levels that follow the drainage across wide plains).
+    For each connected flood region the surface whose blocked
+    cross-validation error on that region's waterline is lower is used
+    (regions with fewer than `min_cv_cells` held-out cells take the
+    scene-wide winner). Returns (depth, wse, info, used, dropped, choice)
+    where choice is True where the HAND surface was used.
+    """
+    from .classify import label_components
+    kw = dict(kw)
+    progress = kw.pop("progress", None)
+    v = np.asarray(valid, bool) & np.isfinite(dem) & np.isfinite(hand)
+    fl = np.asarray(flood, bool) & v
+    s_e, info_e, used, dropped = estimate_surface(dem, fl, v, grid, other_water=other_water, **kw)
+    d_e, _ = depth_from_surface(s_e, dem, fl)
+    s_h, info_h, used_h, dropped_h = estimate_surface(hand, fl, v, grid, other_water=other_water, **kw)
+    d_h, _ = depth_from_surface(s_h, hand, fl)
+    interp = kw.get("interpolation", "idw")
+    r_e, block = cv_residuals(dem, fl, v, grid, other_water, interp, seed=cv_seed)
+    r_h, _ = cv_residuals(hand, fl, v, grid, other_water, interp, seed=cv_seed)
+    both = np.isfinite(r_e) & np.isfinite(r_h)
+    glob_e = float(np.mean(np.abs(r_e[both]))) if both.any() else float("nan")
+    glob_h = float(np.mean(np.abs(r_h[both]))) if both.any() else float("nan")
+    hand_wins_global = bool(both.any() and glob_h < glob_e)
+    lab, n = label_components(fl)
+    choice_by = np.full(n + 1, hand_wins_global)
+    if n and both.any():
+        cnt = np.bincount(lab[both], minlength=n + 1)
+        se = np.bincount(lab[both], weights=np.abs(r_e[both]), minlength=n + 1)
+        sh = np.bincount(lab[both], weights=np.abs(r_h[both]), minlength=n + 1)
+        enough = cnt >= min_cv_cells
+        choice_by[enough] = sh[enough] < se[enough]
+    choice_by[0] = False
+    choice = choice_by[lab] & fl
+    depth = np.where(choice, d_h, d_e).astype("float32")
+    depth = np.where(fl, depth, np.nan).astype("float32")
+    wse = np.where(fl, dem + np.nan_to_num(depth), np.nan).astype("float32")
+    res = np.where(choice, r_h, r_e)
+    info = dict(info_e)
+    info.update({"surface_choice": "per flood region (blocked cross-validation)",
+                 "cv_mae_elevation_m": glob_e, "cv_mae_hand_m": glob_h, "cv_block_cells": block,
+                 "hand_share": float(choice.sum() / max(1, fl.sum())),
+                 "regions": int(n), "regions_hand": int(choice_by[1:].sum()) if n else 0,
+                 "waterline_dropped_hand": info_h.get("waterline_dropped", 0)})
+    fin = res[np.isfinite(res)]
+    if fin.size:
+        med = np.median(fin)
+        info["method_sd_m"] = float(1.4826 * np.median(np.abs(fin - med)))
+    return depth, wse, info, used, dropped, choice
+
+
 def slope_percent(elev, cell_x, cell_y):
     z = np.asarray(elev, dtype="float64")
     gy, gx = np.gradient(np.where(np.isfinite(z), z, np.nanmean(z)), cell_y, cell_x)
