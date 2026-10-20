@@ -1,0 +1,45 @@
+[general]
+name=FloodDepth
+qgisMinimumVersion=3.28
+qgisMaximumVersion=4.99
+description=Flood extent, water depth and their uncertainty from satellite imagery and a DEM, computed entirely inside QGIS: no external executables, no extra Python packages.
+version=0.4.0
+author=Edmond Akello
+email=francenicklaus@gmail.com
+about=FloodDepth turns a satellite image of a flood (or a flood-extent layer)
+    and a DEM into a flood-depth map with uncertainty bands, in one click.
+    Every computation runs inside QGIS with NumPy and the GDAL bindings that
+    QGIS ships; it never starts another process and needs no pip install.
+
+    Imagery: select the downloaded files as they are - Copernicus / EO
+    Browser 'Raw' bands, Sentinel-2 SAFE, Landsat Collection 2, multiband
+    stacks, the Browser 'False color' product, Sentinel-1 VV/VH. Bands are
+    recognised from file names and metadata. MNDWI, NDWI or SAR backscatter
+    with a tile-based Otsu threshold and a separability score; implausible
+    thresholds are refused, not used. Permanent water from a pre-event image,
+    ESA WorldCover or JRC occurrence. Flood-trace mode maps vegetation lost
+    between two dates for floods that drained before the overpass, and
+    separates inundation from erosion / deposition evidence.
+
+    Depth: the water surface from the terrain along the flood edge (FwDET
+    boundary method) with edges at NoData, cloud or permanent water
+    excluded, outlier screening and slope-aware smoothing; or from a HAND
+    raster; or from a known surface or level.
+
+    Uncertainty: a Monte Carlo ensemble with spatially correlated DEM error,
+    threshold and edge perturbation gives depth P10 / P50 / P90 and flood
+    probability; an evidence layer says what each flooded cell is based on.
+    Every run writes an HTML report with the decisions, statistics, warnings
+    and limitations. Terrain-based estimates, not a hydraulic model.
+
+    Licensed under the GNU General Public License version 3 or later.
+category=Raster
+tags=flood,flood depth,inundation,water,Sentinel-2,Sentinel-1,Landsat,NDWI,MNDWI,Otsu,DEM,HAND,FwDET,uncertainty,erosion,hydrology,processing
+icon=icon.svg
+experimental=True
+deprecated=False
+hasProcessingProvider=yes
+homepage=https://github.com/EdmondAkello/Flood-Depth
+repository=https://github.com/EdmondAkello/Flood-Depth
+tracker=https://github.com/EdmondAkello/Flood-Depth/issues
+changelog=0.4.0: redesign. One-click Quick flood depth (image or extent + DEM -> depth, uncertainty, report); automatic band recognition from file names and metadata (Browser Raw exports, SAFE, Landsat, multiband, False color, Sentinel-1); tile-based Otsu with separability and a plausibility guard; permanent water from a pre-event image, WorldCover or JRC; flood-trace mode with inundation vs erosion / deposition evidence; FwDET boundary depth with NoData-edge exclusion, outlier screening, nearest-edge allocation and slope-aware smoothing (seconds instead of hours); HAND method; Monte Carlo uncertainty (depth P10/P50/P90, flood probability); extent comparison (CSI); all grids aligned automatically (geographic DEMs on UTM). Fixes the 0.3 stage tool, which failed on every input. See CHANGELOG.md

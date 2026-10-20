@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+Thumbs.db
+*.aux.xml
+dist/
+smoke.log
+# local-only
+private/
+docs/dev/
+test_data/
