@@ -40,7 +40,17 @@ def main():
           ev[0, 0] == 255 and ev[0, 1] == 2 and ev[1, 1] == 3 and ev[2, 2] == 4)
     check("image extent -> observed water", U.evidence_classes(flood, "image")[1, 1] == 1)
 
-    print("\n3. Ensemble on a known sloping surface")
+    print("\n3. Method error (blocked cross-validation of the waterline)")
+    z, wse, fl = plane_case()
+    g = grid(*z.shape)
+    sd0, b0, n0 = U.method_error(z, fl, np.ones_like(fl), g)
+    check("planar water surface: method error ~ 0", sd0 < 0.05 and n0 > 0, f"sd {sd0:.3f} m, block {b0} cells")
+    rng2 = np.random.default_rng(3)
+    zr = z + U.correlated_noise(z.shape, 0.5, 8.0, rng2)
+    sd1, _, _ = U.method_error(zr, fl, np.ones_like(fl), g)
+    check("rough edge elevations: method error grows", sd1 > 5 * max(sd0, 0.01), f"sd {sd1:.3f} m")
+
+    print("\n4. Ensemble on a known sloping surface")
     z, wse, fl = plane_case()
     g = grid(*z.shape)
     full, s = U.run_ensemble(z, np.ones_like(fl), g, fl, members=20, sigma_dem=0.3, corr_m=100.0,

@@ -133,7 +133,7 @@ def _cannot_classify(scene):
     return msg
 
 
-def compute_index(scene, index, grid=None, notes=None):
+def compute_index(scene, index, grid=None, notes=None, speckle=2):
     """(index array, grid, water_above, notes)."""
     notes = [] if notes is None else notes
     if index == "sar":
@@ -141,8 +141,16 @@ def compute_index(scene, index, grid=None, notes=None):
         grid = grid or _ref_grid(scene, [role])
         a = read_role(scene, role, grid, notes)
         finite = a[np.isfinite(a)]
-        if finite.size and np.nanpercentile(finite, 99) < 5.0 and np.nanmin(finite) >= 0:
-            a = C.to_db(a)
+        linear = finite.size and np.nanpercentile(finite, 99) < 5.0 and np.nanmin(finite) >= 0
+        lin = a if linear else np.where(np.isfinite(a), 10.0 ** (a / 10.0), np.nan)
+        if speckle and speckle > 0:
+            from .surface import focal_mean
+            m = np.isfinite(lin)
+            lin = np.where(m, focal_mean(np.nan_to_num(lin), m, int(speckle)), np.nan)
+            notes.append(f"SAR speckle reduced with a {2 * int(speckle) + 1} x {2 * int(speckle) + 1} boxcar mean "
+                         "(linear power) before thresholding.")
+        a = C.to_db(lin)
+        if linear:
             notes.append("SAR values look linear; converted to dB.")
         return a, grid, False, notes
     pair = {"ndwi": ("green", "nir"), "mndwi": ("green", "swir1")}[index]
@@ -188,7 +196,7 @@ def ndvi(scene, grid, notes):
     return C.normalized_difference(read_role(scene, "nir", grid, notes), read_role(scene, "red", grid, notes))
 
 
-def classify_image(paths, overrides=None, index="auto", threshold=None, method="tile",
+def classify_image(paths, overrides=None, index="auto", threshold=None, method="edge",
                    min_water_cells=0, max_hole_cells=0, cloud_threshold=0.25,
                    pre_paths=None, pre_overrides=None, mode="water", cloud_buffer=2, progress=None):
     """Classify water (or flood trace) from image files.
@@ -260,7 +268,11 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
         try:
             if method == "global":
                 th, eta = C.otsu(idx[valid])
-                t = {"threshold": th, "eta": eta, "method": "global Otsu", "tiles_used": 0}
+                t = {"threshold": th, "eta": eta, "method": "global Otsu", "tiles_used": 0,
+                     "band": C.otsu_band(idx[valid])}
+            elif method == "edge" and iname != "dndvi":
+                key = iname if iname != "sar" else ("sar_vv" if "vv" in scene.sources else "sar_vh")
+                t = C.edge_threshold(idx, water_above, C.PHYSICAL_THRESHOLD[key])
             else:
                 t = C.tile_threshold(idx, water_above)
         except C.ThresholdError as exc:
@@ -285,6 +297,12 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
 
     water, valid = C.classify(idx, t["threshold"], water_above)
     raw_share = float(water.sum() / max(1, valid.sum()))
+    if mode == "water" and threshold is None and raw_share < 0.0005:
+        raise ValueError(
+            f"No water was found: {100 * raw_share:.3f} % of the valid image is below the {iname.upper()} water "
+            "threshold. The image probably shows no flood water at that date (for a flash flood the water may "
+            "have drained before the overpass - use flood-trace mode with a pre-event image). If you expect water, "
+            "check the bands or set a threshold manually.")
     info["water_share_raw"] = raw_share
 
     permanent = None
@@ -294,7 +312,13 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
             pname = choose_index(pre, iname if iname != "sar" else "auto")
             pidx, pgrid, pabove, _ = compute_index(pre, pname, None, notes)
             pv = np.isfinite(pidx)
-            pt = C.tile_threshold(pidx, pabove) if threshold is None else {"threshold": float(threshold)}
+            if threshold is not None:
+                pt = {"threshold": float(threshold)}
+            elif method == "edge":
+                pk = pname if pname != "sar" else ("sar_vv" if "vv" in pre.sources else "sar_vh")
+                pt = C.edge_threshold(pidx, pabove, C.PHYSICAL_THRESHOLD[pk])
+            else:
+                pt = C.tile_threshold(pidx, pabove)
             pw, pv = C.classify(pidx, pt["threshold"], pabove)
             permanent, _ = R.mask_to_grid(pw, pv, pgrid, grid, 0.5)
             info["permanent_threshold"] = pt["threshold"]

@@ -41,7 +41,8 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
             "names and metadata (Browser 'Raw' exports, Sentinel-2 SAFE, Landsat, multiband stacks with band "
             "names); set band numbers in the advanced parameters only for unnamed stacks.\n\n"
             "Index: MNDWI when green and SWIR1 are present, else NDWI; Sentinel-1 VV/VH in dB or linear. "
-            "Threshold: tile-based Otsu (Martinis et al. 2009) with the separability eta reported; an automatic "
+            "Threshold: edge-based Otsu (Donchyts et al. 2016) seeded at the physical threshold, with the "
+            "separability eta reported (tile-based and global Otsu as options); an automatic "
             "threshold outside the physically usual range is refused with an explanation rather than used.\n\n"
             "Mask values: 1 flood water, 2 permanent water (seen in the pre-event image), 0 dry, 255 NoData. "
             "Cleanup removes water patches below a size and, only if asked, fills small dry holes - islands, "
@@ -62,7 +63,8 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
                                      "SAR backscatter (VV / VH)"], defaultValue=0))
         self.number("THRESHOLD", "Manual threshold (empty = automatic)", "double", None, optional=True)
         self.addParameter(QgsProcessingParameterEnum(
-            "TMETHOD", "Automatic threshold", ["Tile-based Otsu", "Global Otsu"], defaultValue=0))
+            "TMETHOD", "Automatic threshold", ["Edge-based Otsu (recommended)", "Tile-based Otsu", "Global Otsu"],
+            defaultValue=0))
         self.number("MIN_WATER", "Remove water patches smaller than (cells)", "int", 10, 0)
         self.number("MAX_HOLE", "Fill dry holes up to (cells; 0 = keep islands)", "int", 0, 0)
         self.number("CLOUD", "Bright-cloud blue reflectance limit (0 = off)", "double", 0.25, 0.0, 1.0, adv=True)
@@ -95,7 +97,7 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
         try:
             res = I.classify_image(
                 images, overrides, INDEXES[self.parameterAsEnum(parameters, "INDEX", context)], threshold,
-                ["tile", "global"][self.parameterAsEnum(parameters, "TMETHOD", context)],
+                ["edge", "tile", "global"][self.parameterAsEnum(parameters, "TMETHOD", context)],
                 self.parameterAsInt(parameters, "MIN_WATER", context),
                 self.parameterAsInt(parameters, "MAX_HOLE", context),
                 self.parameterAsDouble(parameters, "CLOUD", context), pre or None, None, mode,

@@ -15,7 +15,7 @@ from qgis.core import (
 
 from .base import FloodDepthAlgorithm
 
-INTERP = ["nearest", "idw"]
+INTERP = ["idw", "nearest"]
 
 
 class SurfaceFromExtentAlgorithm(FloodDepthAlgorithm):
@@ -60,7 +60,7 @@ class SurfaceFromExtentAlgorithm(FloodDepthAlgorithm):
             "AOI", "Area of interest", [QgsProcessing.TypeVectorPolygon], optional=True))
         self.number("CELL", "Analysis cell size (m; 0 = DEM resolution)", "double", 0.0, 0.0, adv=True)
         self.addParameter(self.advanced(QgsProcessingParameterEnum(
-            "INTERP", "Surface interpolation", ["Nearest flood edge (FwDET)", "Inverse distance (GDAL)"],
+            "INTERP", "Surface interpolation", ["Inverse distance from the flood edge (GDAL)", "Nearest flood edge (FwDET v1)"],
             defaultValue=0)))
         self.number("SMOOTH", "Smoothing radius (cells)", "int", 2, 0, 50, adv=True)
         self.number("SMOOTH_TOL", "Smoothing tolerance (m)", "double", 0.5, 0.0, adv=True)

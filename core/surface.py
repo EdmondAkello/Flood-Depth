@@ -242,7 +242,7 @@ def fill_from_points(values, known, grid, max_search=None, smoothing_iterations=
 
 def estimate_surface(elev, flood, valid, grid, other_water=None, blocked=None,
                      outlier_radius=15, outlier_k=3.0, outlier_min=0.5,
-                     smooth_radius=2, smooth_tolerance=0.5, interpolation="nearest",
+                     smooth_radius=2, smooth_tolerance=0.5, interpolation="idw",
                      steep_slope_pct=10.0, max_search_cells=None, progress=None):
     """Water-surface (or HAND water-height) raster over the flood cells.
 

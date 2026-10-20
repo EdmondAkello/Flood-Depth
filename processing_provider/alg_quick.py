@@ -24,7 +24,7 @@ from .base import FloodDepthAlgorithm, RasterStyle
 MODES = ["water", "trace"]
 INDEXES = ["auto", "mndwi", "ndwi", "sar"]
 METHODS = ["dem", "hand"]
-INTERP = ["nearest", "idw"]
+INTERP = ["idw", "nearest"]
 
 
 class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
@@ -48,9 +48,9 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             "<b>Image files.</b> Select the downloaded file(s) as they are: one multiband file or one file per "
             "band (Copernicus / EO Browser 'Raw' B03, B08, B11 ..., Sentinel-2 SAFE, Landsat SR_B3 ...). Bands "
             "are recognised from file names and band metadata. Sentinel-1 VV / VH (linear or dB) are thresholded "
-            "as dark water. True-colour images and rendered SAR visualisations are refused with an explanation.\n\n"
-            "<b>Water at the overpass</b> (default) maps water with MNDWI / NDWI / SAR and a tile-based Otsu "
-            "threshold. <b>Flood trace</b> compares a pre-event and a post-event image and maps vegetation lost: "
+            "as dark water after a speckle filter. True-colour images and rendered SAR visualisations are refused with an explanation.\n\n"
+            "<b>Water at the overpass</b> (default) maps water with MNDWI / NDWI / SAR and an edge-based Otsu "
+            "threshold seeded at the physical value (0; -16 dB VV). <b>Flood trace</b> compares a pre-event and a post-event image and maps vegetation lost: "
             "use it when the water drained before the overpass (flash floods, debris flows); the trace is split "
             "into inundation and erosion / deposition evidence.\n\n"
             "<b>Depth.</b> The water surface is the terrain elevation along the flood edge (waterline cells next "
@@ -99,6 +99,9 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             "INDEX", "Water index", ["Automatic", "MNDWI (green, SWIR1)", "NDWI (green, NIR)",
                                      "SAR backscatter (VV / VH)"], defaultValue=0)))
         self.number("THRESHOLD", "Manual threshold (empty = automatic)", "double", None, optional=True, adv=True)
+        self.addParameter(self.advanced(QgsProcessingParameterEnum(
+            "TMETHOD", "Automatic threshold", ["Edge-based Otsu (recommended)", "Tile-based Otsu", "Global Otsu"],
+            defaultValue=0)))
         for key, label in (("B_GREEN", "green"), ("B_NIR", "NIR"), ("B_SWIR1", "SWIR1"), ("B_RED", "red"),
                            ("B_BLUE", "blue")):
             self.number(key, f"Band number of {label} in a multiband file (0 = automatic)", "int", 0, 0, 500, adv=True)
@@ -110,7 +113,7 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             "PERM_VALUES", "Permanent-water raster values (auto, 80, 80,90 or >=50)", defaultValue="auto")))
         self.number("CELL", "Analysis cell size (m; 0 = DEM resolution)", "double", 0.0, 0.0, adv=True)
         self.addParameter(self.advanced(QgsProcessingParameterEnum(
-            "INTERP", "Surface interpolation", ["Nearest flood edge (FwDET)", "Inverse distance (GDAL)"],
+            "INTERP", "Surface interpolation", ["Inverse distance from the flood edge (GDAL)", "Nearest flood edge (FwDET v1)"],
             defaultValue=0)))
         self.number("SMOOTH", "Smoothing radius (cells)", "int", 2, 0, 50, adv=True)
         self.number("SMOOTH_TOL", "Smoothing tolerance (m)", "double", 0.5, 0.0, adv=True)
@@ -155,6 +158,7 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             dem_path=self.raster_path(parameters, "DEM", context), out_dir=out_dir,
             image_paths=images, pre_paths=self.raster_paths(parameters, "PRE_IMAGES", context), mode=mode,
             index=INDEXES[self.parameterAsEnum(parameters, "INDEX", context)], threshold=threshold,
+            threshold_method=["edge", "tile", "global"][self.parameterAsEnum(parameters, "TMETHOD", context)],
             band_overrides=overrides, extent_wkts=ext_wkts, extent_crs=ext_crs, aoi_wkts=aoi, aoi_crs=aoi_crs,
             seed_wkts=seeds, seed_crs=seed_crs,
             seed_buffer_m=self.parameterAsDouble(parameters, "SEED_BUFFER", context),

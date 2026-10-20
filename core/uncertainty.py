@@ -23,6 +23,10 @@ Ensemble (Monte Carlo)
     * a spatially correlated DEM error: Gaussian field, standard deviation
       sigma_dem, correlation length L (Gaussian kernel, FFT);
     * an extra independent terrain error sigma_erosion in class-3 cells;
+    * a water-surface (method) error: the residual SD of a spatially
+      blocked cross-validation of the waterline (method_error), applied as
+      a correlated field - how far the real surface departs from what the
+      flood edge can tell, which the DEM term does not cover;
     * a perturbed extent: for image extents the classification threshold
       is drawn across the near-optimal Otsu band (between-class variance
       >= 95 % of its maximum) and the area-fraction cut-off used to move
@@ -113,6 +117,48 @@ def expand(a, f, shape):
     return np.repeat(np.repeat(a, f, axis=0), f, axis=1)[:shape[0], :shape[1]]
 
 
+def method_error(elev, flood, valid, grid, other_water=None, interpolation="idw", folds=3, rng=None):
+    """Spatially blocked cross-validation of the water surface along the edge.
+
+    Waterline cells are held out in square blocks whose side is twice the
+    median distance from a flood cell to the waterline (so a held-out cell
+    is predicted from about as far away as an interior cell), predicted
+    from the remaining waterline, and compared with their elevation.
+    Returns (sd of the residuals in m, block size in cells, n held out).
+    The residual SD measures how far the real water surface departs from
+    what the edge can tell - the method error the DEM term does not cover.
+    """
+    rng = rng or np.random.default_rng(0)
+    line = SF.waterline(flood, valid, other_water)
+    if line.sum() < 30:
+        return 0.0, 0, 0
+    d = SF.proximity_cells(line)
+    b = int(max(4, min(200, 2 * np.median(d[flood]))))
+    rows, cols = flood.shape
+    br, bc = np.indices((rows, cols))
+    tile = (br // b) * ((cols + b - 1) // b) + (bc // b)
+    ids = np.unique(tile[line])
+    res = []
+    for _ in range(folds):
+        held_ids = rng.choice(ids, max(1, int(0.2 * ids.size)), replace=False)
+        held = line & np.isin(tile, held_ids)
+        train = line & ~held
+        if train.sum() < 10 or held.sum() < 5:
+            continue
+        if interpolation == "idw":
+            pred = SF.fill_from_points(elev, train, grid)
+        else:
+            pred, _ = SF.fill_nearest(elev, train, grid.cell_x, grid.cell_y, targets=held)
+        r = (elev - pred)[held]
+        res.append(r[np.isfinite(r)])
+    if not res:
+        return 0.0, b, 0
+    r = np.concatenate(res)
+    med = np.median(r)
+    sd = float(1.4826 * np.median(np.abs(r - med)))
+    return sd, b, int(r.size)
+
+
 def shift_edge(mask, valid, k):
     """Grow (k > 0) or shrink (k < 0) a mask by |k| cells (4-neighbour)."""
     if k == 0:
@@ -125,7 +171,7 @@ def shift_edge(mask, valid, k):
 def run_ensemble(dem, valid, grid, base_flood, members=20, sigma_dem=2.0, corr_m=150.0,
                  sigma_erosion=1.0, erosion=None, frac_options=None, edge_shift=1,
                  other_water=None, seed=42, surface_kwargs=None, depth_base=None,
-                 seed_mask=None, max_cells=2_000_000, progress=None):
+                 seed_mask=None, max_cells=2_000_000, method_cv=True, progress=None):
     """Monte Carlo depth ensemble on the flood's bounding box.
 
     frac_options: list of area-fraction rasters (image extents at the low,
@@ -172,6 +218,10 @@ def run_ensemble(dem, valid, grid, base_flood, members=20, sigma_dem=2.0, corr_m
     sub = Grid(elev.shape[1], elev.shape[0], sub_gt, grid.wkt)
     corr_cells = corr_m / max(cx, 1e-9)
     shape = elev.shape
+    m_sd, m_block, m_n = (0.0, 0, 0)
+    if method_cv:
+        m_sd, m_block, m_n = method_error(elev, bf, v, sub, ow, surface_kwargs.get("interpolation", "idw"),
+                                          rng=np.random.default_rng(seed + 1))
     store = []
     wet = np.zeros(shape, dtype="uint16")
     areas, means, vols, failed = [], [], [], 0
@@ -200,6 +250,8 @@ def run_ensemble(dem, valid, grid, base_flood, members=20, sigma_dem=2.0, corr_m
         except ValueError:
             failed += 1
             continue
+        if m_sd > 0:
+            s = s + correlated_noise(shape, m_sd, max(1.0, m_block / 2.0), rng)
         d, _ = SF.depth_from_surface(s, e, fl)
         dd = np.nan_to_num(d, nan=0.0)
         store.append(dd)
@@ -235,5 +287,6 @@ def run_ensemble(dem, valid, grid, base_flood, members=20, sigma_dem=2.0, corr_m
                "sigma_erosion_m": sigma_erosion if ero is not None else 0.0,
                "extent_perturbation": "threshold band + area fraction" if fo else f"edge shift +-{edge_shift} cell(s)",
                "area_km2_p10_p50_p90": pct(areas), "mean_depth_m_p10_p50_p90": pct(means),
-               "volume_m3_p10_p50_p90": pct(vols), "seed": seed, "coarsening": f}
+               "volume_m3_p10_p50_p90": pct(vols), "seed": seed, "coarsening": f,
+               "method_sd_m": m_sd, "method_block_m": m_block * cx, "method_cv_cells": m_n}
     return full, summary

@@ -47,7 +47,7 @@ class QuickOptions:
     mode: str = "water"                 # water | trace
     index: str = "auto"                 # auto | ndwi | mndwi | sar
     threshold: float = None             # None = automatic
-    threshold_method: str = "tile"      # tile | global
+    threshold_method: str = "edge"      # edge | tile | global (benchmarks/sen1floods11.py)
     band_overrides: dict = field(default_factory=dict)
     extent_wkts: list = field(default_factory=list)     # flood polygons instead of an image
     extent_crs: str = ""
@@ -72,7 +72,7 @@ class QuickOptions:
     smooth_radius: int = 2
     smooth_tolerance: float = 0.5
     steep_slope_pct: float = 10.0
-    interpolation: str = "nearest"      # nearest | idw
+    interpolation: str = "idw"          # idw | nearest (benchmarks/dem_recovery.py)
     min_fraction: float = 0.5
     max_cells: int = 200_000_000
     uncertainty_members: int = 20      # 0 = no ensemble

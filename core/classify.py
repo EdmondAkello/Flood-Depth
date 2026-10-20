@@ -7,6 +7,9 @@ Written rasters use 1 = water, 0 = dry, 255 = NoData.
 
 Automatic thresholds
 --------------------
+Default: edge-based Otsu (Donchyts et al. 2016) seeded at the physical
+threshold (0 for NDWI / MNDWI, -16 dB VV, -22 dB VH) - see edge_threshold.
+
 Otsu (1979) picks the histogram split that maximises between-class
 variance. Its separability eta = sigma_between^2 / sigma_total^2 (0-1)
 says how bimodal the histogram really is. A single Gaussian gives
@@ -178,6 +181,41 @@ def tile_threshold(index, water_above=True, tile=None, min_tiles=5, max_tiles=64
 
 
 UNIMODAL_ETA = 2.0 / 3.141592653589793   # eta of a single Gaussian = 2/pi ~ 0.637
+
+
+PHYSICAL_THRESHOLD = {"ndwi": 0.0, "mndwi": 0.0, "sar_vv": -16.0, "sar_vh": -22.0}
+
+
+def edge_threshold(index, water_above=True, t0=0.0, buf=2, min_pixels=200):
+    """Edge-based Otsu (Donchyts et al. 2016).
+
+    Classify with the physical threshold t0, take the pixels within `buf`
+    cells of the resulting water / land edges - a sample in which both
+    classes are present in similar numbers - and apply Otsu to it. On the
+    446 Sen1Floods11 chips this scores CSI 0.61 for MNDWI against 0.39 for
+    the tile-based method (benchmarks/sen1floods11.py). Falls back to t0
+    (and says so) when one class is absent or the edge is too short.
+    """
+    x = np.asarray(index, dtype="float32")
+    fin = np.isfinite(x)
+    with np.errstate(invalid="ignore"):
+        w = ((x > t0) if water_above else (x < t0)) & fin
+    out = {"threshold": float(t0), "eta": None, "method": "physical threshold (fallback)", "tiles_used": 0,
+           "prior": float(t0)}
+    if w.sum() < 20 or (fin & ~w).sum() < 20:
+        out["note"] = "one class (almost) absent at the physical threshold; it was kept"
+        return out
+    edge = dilate(w, buf) & dilate(fin & ~w, buf) & fin
+    if edge.sum() < min_pixels:
+        out["note"] = f"water / land edge too short ({int(edge.sum())} pixels); the physical threshold was kept"
+        return out
+    t, eta = otsu(x[edge])
+    out.update({"threshold": t, "eta": eta, "method": "edge-based Otsu", "edge_pixels": int(edge.sum())})
+    try:
+        out["band"] = otsu_band(x[edge])
+    except (ValueError, IndexError) as exc:
+        out["band_note"] = f"threshold band not computed: {exc}"
+    return out
 
 
 def confidence_label(eta):
