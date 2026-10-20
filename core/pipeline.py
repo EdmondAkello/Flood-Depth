@@ -295,6 +295,11 @@ def run_quick(opt, progress=None, log=print):
 
     prog(0.95, "Writing outputs")
     info["depth"] = ST.depth_stats(depth, ca)
+    # interior: the flood without its waterline ring (depth there is ~0 by construction);
+    # in fragmented extents the all-cell statistics are dominated by edges
+    interior = flood & ~(used | dropped)
+    info["depth_interior"] = ST.depth_stats(np.where(interior, depth, np.nan), ca)
+    info["depth_interior"]["share_of_flood"] = float(interior.sum() / max(1, flood.sum()))
     wpath = os.path.join(opt.out_dir, "wse.tif")
     dpath = os.path.join(opt.out_dir, "depth.tif")
     tags = {"FLOODDEPTH": VERSION, "METHOD": opt.method}

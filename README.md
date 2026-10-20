@@ -17,8 +17,9 @@ Select the image files you downloaded, select a DEM, click Run:
    Collection 2 (`…_SR_B3.TIF`), multiband stacks with band names, the Browser
    "False color" product, Sentinel-1 VV/VH. Alpha / data-mask bands,
    undeclared NoData sentinels and the Sentinel-2 −1000 DN offset are handled.
-2. **Classifies water** with MNDWI, NDWI or SAR backscatter and a
-   **tile-based Otsu** threshold, reporting its separability (η). A threshold
+2. **Classifies water** with NDWI plus confident MNDWI (or SAR backscatter,
+   speckle-filtered) and an **edge-based Otsu** threshold seeded at the physical value,
+   reporting its separability (η). A threshold
    outside the physically usual range is **refused with an explanation**, not
    used — a post-event image with no water left does not become a flood map.
 3. **Removes permanent water** using a pre-event image, ESA WorldCover or JRC
@@ -79,7 +80,7 @@ Outputs (output folder): `depth.tif`, `wse.tif`, `evidence.tif`, `depth_p10.tif`
       core/                    ← NO QGIS IMPORTS. NumPy + GDAL/OGR only.
         raster.py              GDAL I/O, NoData conventions, analysis grid, warping
         sensors.py             band recognition from names / metadata
-        classify.py            indices, Otsu (tile-based, separability, band), components, cleanup
+        classify.py            indices, Otsu (edge-based, tile-based, separability, band), components, cleanup
         imagery.py             files → water / trace mask (permanent water, cloud, offsets)
         surface.py             waterline, outliers, nearest-edge allocation (jump flooding), depth
         uncertainty.py         evidence classes, correlated DEM error, Monte Carlo ensemble
@@ -95,9 +96,21 @@ The core is importable without QGIS:
     python -m flooddepth.tests.test_surface     # analytic surfaces with known depths
     python -m flooddepth.tests.test_pipeline    # the whole workflow on a synthetic site
 
-`tools/dev/ci_pure.sh` runs the 7 pure suites (118 checks); `tools/dev/run_tests.sh` adds the
+`tools/dev/ci_pure.sh` runs the 7 pure suites (120 checks); `tools/dev/run_tests.sh` adds the
 QGIS smoke test (`tests/qgis_smoke.py`, 32 checks: every tool through real Processing).
 GitHub Actions runs the pure suites and a Bandit scan on every push.
+
+## Validation (summary)
+
+* **Classification** — all 446 hand-labelled chips of Sen1Floods11 (11 flood events, 11 countries),
+  fully automatic: Sentinel-2 pooled CSI 0.74 (F1 0.85, area bias 1.01), Sentinel-1 VV 0.45.
+* **Depth** — known water surfaces imposed on FABDEM, ALOS, TanDEM-X and GLO-30 + HAND at Nyando and
+  Mai Mahiu; the uncertainty band covers 82–94 % of true depths for valley-type floods; a known
+  underestimation in wide flat floodplains is documented.
+* **Case studies** — Nyando (Kano plains, 5 May 2024), Mai Mahiu (29 April 2024 flash flood, flood
+  trace), Buulo Gaduud–Afmadow (Juba, 3 Dec 2023).
+
+Details, tables and scripts: [DOCUMENTATION.md § 9](DOCUMENTATION.md#9-validation) and `benchmarks/`.
 
 ## Method, assumptions and limits
 

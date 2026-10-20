@@ -22,29 +22,40 @@ is a redesign on the QEHT architecture (pure core, thin Processing layer).
   with 0 fill and no declared NoData.
 - **Sentinel-2 −1000 DN offset** applied from metadata, or only when every band's values lie in
   the offset DN window (Browser exports are harmonised or rescaled and are left alone).
-- **Tile-based Otsu** (Martinis et al. 2009) with separability η (single Gaussian = 2/π),
+- **Edge-based Otsu** (Donchyts et al. 2016) seeded at the physical threshold (0; −16 dB VV;
+  −22 dB VH) as the default — chosen on the 446 Sen1Floods11 chips (CSI 0.61 S2, 0.45 S1 vs
+  0.46 / 0.31 for tile-based); tile-based (Martinis et al. 2009) and global Otsu as options;
+  a 5 × 5 speckle filter for SAR. Separability η (single Gaussian = 2/π),
   the near-optimal threshold band, a flat-maximum fix (middle of an empty-bin gap) and a
   **plausibility guard** that refuses an automatic threshold outside the range where water
   separates (NDWI/MNDWI −0.3…0.6; VV −26…−10 dB; VH −32…−16 dB).
+- **NDWI + confident MNDWI** as the automatic Sentinel-2 / Landsat index (NDWI water, or MNDWI >
+  max(threshold, 0.3)): Sen1Floods11 CSI 0.74 with an unbiased area (1.01), against 0.61 / bias
+  1.49 for MNDWI alone.
+- **Interior depth statistics** (waterline ring excluded) beside the all-cell ones in the report.
 - **Permanent water** from a pre-event image, a raster (ESA WorldCover class 80, JRC occurrence
   ≥ 50 %, or given values) or polygons.
 - **Flood-trace mode** (pre/post NDVI loss) for floods that drained before the overpass, with
   bare-soil index to split inundation from erosion / deposition evidence.
 - **Connectivity filter**: keep only flooding connected to a river, reach or road layer.
 - **Water-surface engine** (FwDET boundary method): waterline only against valid dry ground,
-  robust edge-outlier screening (steep ground protected), nearest-edge allocation by jump
-  flooding in NumPy (exact; schedule bounded with GDAL ComputeProximity), slope-aware
-  smoothing; inverse-distance option; HAND method (depth = edge HAND − HAND).
+  robust edge-outlier screening (steep ground protected), inverse-distance surface from the
+  edge (default, chosen by benchmark) or nearest-edge allocation by jump flooding in NumPy
+  (exact; schedule bounded with GDAL ComputeProximity), slope-aware smoothing; HAND method
+  (depth = edge HAND − HAND).
 - **Uncertainty**: evidence classes (observed water, trace-inundation, trace-erosion/deposition,
   steep flow path); Monte Carlo ensemble with correlated DEM error (presets from the DEM file
-  name), threshold-band and edge perturbation, extra terrain error in eroded cells → depth
+  name), a water-surface error from a blocked cross-validation of the waterline,
+  threshold-band and edge perturbation, extra terrain error in eroded cells → depth
   P10/P50/P90 and flood probability; coarsened automatically above 2 Mcells.
 - **Compare flood extents** (CSI, hit rate, false-alarm ratio, bias, F1, agreement raster).
 - **HTML run report** and `run.json`.
 - Automatic grid alignment: geographic DEMs run on the WGS 84 / UTM grid; images in any CRS are
   warped; masks move between grids by area fraction.
-- Tests: 7 pure suites (118 checks) and a QGIS smoke test (32 checks) on a synthetic site with a
+- Tests: 7 pure suites (120 checks) and a QGIS smoke test (32 checks) on a synthetic site with a
   known answer; GitHub Actions; Bandit clean.
+- Benchmarks (`benchmarks/`, not in the zip): Sen1Floods11 classification; depth recovery on real
+  DEMs with imposed water surfaces.
 
 ### Changed
 - Stage estimation: the per-pixel Python IDW over the whole DTM (minutes to hours) is replaced

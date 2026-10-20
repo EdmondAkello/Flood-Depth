@@ -183,7 +183,7 @@ def tile_threshold(index, water_above=True, tile=None, min_tiles=5, max_tiles=64
 UNIMODAL_ETA = 2.0 / 3.141592653589793   # eta of a single Gaussian = 2/pi ~ 0.637
 
 
-PHYSICAL_THRESHOLD = {"ndwi": 0.0, "mndwi": 0.0, "sar_vv": -16.0, "sar_vh": -22.0}
+PHYSICAL_THRESHOLD = {"ndwi": 0.0, "mndwi": 0.0, "consensus": 0.0, "sar_vv": -16.0, "sar_vh": -22.0}
 
 
 def edge_threshold(index, water_above=True, t0=0.0, buf=2, min_pixels=200):

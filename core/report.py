@@ -137,8 +137,10 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None):
     cls = info.get("classification")
     s = info.get("surface", {})
     o = info.get("options", {})
+    di = info.get("depth_interior", {})
     k = [("Flooded area", f"{d.get('area_km2', 0):,.3f} km²"),
          ("Mean depth", f"{d.get('mean_m', float('nan')):.2f} m"),
+         ("Mean depth, interior", f"{di.get('mean_m', float('nan')):.2f} m"),
          ("90th pct depth", f"{d.get('p90_m', float('nan')):.2f} m"),
          ("Max depth", f"{d.get('max_m', float('nan')):.2f} m"),
          ("Volume", f"{d.get('volume_m3', 0) / 1e6:,.2f} Mm³")]
@@ -174,6 +176,11 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None):
         if key in d:
             h.append(_row(lab, _fmt(d[key], 0 if key in ("volume_m3", "cells") else 3)))
     h.append("</table>")
+    if di.get("cells"):
+        h.append(f"<p class='sub'>Interior = flood cells that are not on the waterline ({100 * di.get('share_of_flood', 0):.0f} % "
+                 f"of the flood). Depth on the waterline is about 0 by construction, so in a fragmented extent the "
+                 f"all-cell mean is dominated by edges. Interior: mean {di.get('mean_m', 0):.2f} m, median "
+                 f"{di.get('median_m', 0):.2f} m, 90th percentile {di.get('p90_m', 0):.2f} m.</p>")
     u = info.get("uncertainty")
     if u:
         h.append("<h2>Uncertainty</h2>")

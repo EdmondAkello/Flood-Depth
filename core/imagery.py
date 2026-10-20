@@ -27,7 +27,10 @@ from . import raster as R
 from . import classify as C
 from . import sensors as S
 
-INDEX_NAMES = {"ndwi": "NDWI (green, NIR) - McFeeters 1996",
+CONFIDENT_MNDWI = 0.3   # calibrated on Sen1Floods11 (benchmarks/sen1floods11.py): area bias 1.04
+
+INDEX_NAMES = {"consensus": "NDWI + confident MNDWI (NDWI water, or MNDWI > max(its threshold, 0.3))",
+               "ndwi": "NDWI (green, NIR) - McFeeters 1996",
                "mndwi": "MNDWI (green, SWIR1) - Xu 2006",
                "sar": "SAR backscatter (dark = water)",
                "dndvi": "NDVI change post - pre (vegetation loss)"}
@@ -103,12 +106,15 @@ def choose_index(scene, index="auto"):
             return "sar"
         if scene.rendered_sar:
             raise ValueError(_cannot_classify(scene))
-        if scene.has("green", "swir1"):
-            return "mndwi"
+        if scene.has("green", "nir", "swir1"):
+            return "consensus"
         if scene.has("green", "nir"):
             return "ndwi"
+        if scene.has("green", "swir1"):
+            return "mndwi"
         raise ValueError(_cannot_classify(scene))
-    need = {"ndwi": ("green", "nir"), "mndwi": ("green", "swir1"), "sar": ()}[index]
+    need = {"ndwi": ("green", "nir"), "mndwi": ("green", "swir1"), "consensus": ("green", "nir", "swir1"),
+            "sar": ()}[index]
     if index == "sar" and scene.kind != "sar":
         raise ValueError("SAR thresholding needs a Sentinel-1 product (VV band or a Sentinel-1 rendered image).")
     if need and not scene.has(*need):
@@ -153,11 +159,16 @@ def compute_index(scene, index, grid=None, notes=None, speckle=2):
         if linear:
             notes.append("SAR values look linear; converted to dB.")
         return a, grid, False, notes
-    pair = {"ndwi": ("green", "nir"), "mndwi": ("green", "swir1")}[index]
+    pair = {"ndwi": ("green", "nir"), "mndwi": ("green", "swir1"), "consensus": ("green", "nir")}[index]
     grid = grid or _ref_grid(scene, pair)
     a = read_role(scene, pair[0], grid, notes)
     b = read_role(scene, pair[1], grid, notes)
     return C.normalized_difference(a, b), grid, True, notes
+
+
+def water_ndwi_only(idx, t):
+    with np.errstate(invalid="ignore"):
+        return np.isfinite(idx) & (idx > t)
 
 
 def plausible_range(iname, scene, sar_band=None):
@@ -271,7 +282,7 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
                 t = {"threshold": th, "eta": eta, "method": "global Otsu", "tiles_used": 0,
                      "band": C.otsu_band(idx[valid])}
             elif method == "edge" and iname != "dndvi":
-                key = iname if iname != "sar" else ("sar_vv" if "vv" in scene.sources else "sar_vh")
+                key = {"sar": "sar_vv" if "vv" in scene.sources else "sar_vh", "consensus": "ndwi"}.get(iname, iname)
                 t = C.edge_threshold(idx, water_above, C.PHYSICAL_THRESHOLD[key])
             else:
                 t = C.tile_threshold(idx, water_above)
@@ -286,7 +297,7 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
                          "histogram is not clearly two-class. Inspect the mask; consider a manual threshold or a "
                          "smaller area of interest.")
     info["sar_band"] = ("vv" if "vv" in scene.sources else "vh") if iname == "sar" else None
-    lim = plausible_range(iname, scene, info["sar_band"])
+    lim = plausible_range("ndwi" if iname == "consensus" else iname, scene, info["sar_band"])
     if threshold is None and lim and not (lim[0] <= t["threshold"] <= lim[1]):
         raise ValueError(
             f"The automatic {iname.upper()} threshold ({t['threshold']:.3f}) is outside the range where open "
@@ -296,6 +307,24 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
             "sure, set the threshold manually.")
 
     water, valid = C.classify(idx, t["threshold"], water_above)
+    confident = None
+    if iname == "consensus":
+        # MNDWI catches turbid / shallow flood water that NDWI misses; only its
+        # confident part is added (MNDWI alone over-maps wet soil: area bias 1.5)
+        md = C.normalized_difference(read_role(scene, "green", grid, notes), read_role(scene, "swir1", grid, notes))
+        if cloud is not None:
+            md = np.where(cloud, np.nan, md)
+        if threshold is None:
+            tm = C.edge_threshold(md, True, 0.0)["threshold"] if method == "edge" else C.tile_threshold(md, True)["threshold"]
+        else:
+            tm = float(threshold)
+        tm = max(tm, CONFIDENT_MNDWI)
+        valid = valid & np.isfinite(md)
+        with np.errstate(invalid="ignore"):
+            confident = valid & (md > tm)
+        water = (water & valid) | confident
+        info["mndwi_threshold"] = float(tm)
+        info["mndwi_added_share"] = float((confident & ~water_ndwi_only(idx, t["threshold"])).sum() / max(1, valid.sum()))
     raw_share = float(water.sum() / max(1, valid.sum()))
     if mode == "water" and threshold is None and raw_share < 0.0005:
         raise ValueError(
@@ -346,6 +375,8 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
         lo_t, hi_t = (band[0], band[1]) if water_above else (band[1], band[0])
         w1, _ = C.classify(idx, lo_t, water_above)
         w2, _ = C.classify(idx, hi_t, water_above)
+        if confident is not None:
+            w1, w2 = (w1 & valid) | confident, (w2 & valid) | confident
         incl, _ = C.clean_mask(w1, valid, min_water_cells, max_hole_cells)
         excl, _ = C.clean_mask(w2, valid, min_water_cells, max_hole_cells)
         info["threshold_band"] = [float(band[0]), float(band[1])]

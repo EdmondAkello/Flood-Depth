@@ -9,9 +9,10 @@ and Sentinel-2 L1C (13 bands). Labels: 1 water, 0 not water, -1 no data.
 Public: gs://sen1floods11/v1.1/data/flood_events/HandLabeled/.
 
 Each chip goes through flooddepth.core.imagery.classify_image exactly as in
-the plugin (automatic index, tile-based Otsu, plausibility guard, cleanup of
-patches < 10 cells). Band numbers are given because the chips carry no band
-names (S2: green 3, NIR 8, SWIR1 12, blue 2; S1: VV 1, VH 2).
+the plugin (index, threshold, plausibility guard, cleanup of patches < 10
+cells). The automatic configurations give no band numbers: the bands are
+recognised from the chips' descriptions. A refusal (no water / implausible
+threshold) is scored as "no water mapped".
 
     python -m flooddepth.benchmarks.sen1floods11 <chip_dir> [out.json]
 """
@@ -27,14 +28,16 @@ import numpy as np
 from ..core import imagery as I, raster as R, stats as ST
 
 CONFIGS = {
-    "S2 fully automatic (edge Otsu)": ("S2Hand", {}, "auto", "edge"),
-    "S1 fully automatic (edge Otsu, speckle 5x5)": ("S1Hand", {}, "auto", "edge"),
-    "S2 NDWI edge Otsu": ("S2Hand", {"green": 3, "nir": 8, "blue": 2}, "ndwi", "edge"),
-    "S2 MNDWI tile-Otsu": ("S2Hand", {"green": 3, "nir": 8, "swir1": 12, "blue": 2, "red": 4}, "mndwi", "tile"),
-    "S2 NDWI tile-Otsu": ("S2Hand", {"green": 3, "nir": 8, "swir1": 12, "blue": 2, "red": 4}, "ndwi", "tile"),
-    "S2 MNDWI global Otsu": ("S2Hand", {"green": 3, "nir": 8, "swir1": 12, "blue": 2, "red": 4}, "mndwi", "global"),
-    "S1 VV tile-Otsu": ("S1Hand", {"vv": 1, "vh": 2}, "sar", "tile"),
-    "S1 VV global Otsu": ("S1Hand", {"vv": 1, "vh": 2}, "sar", "global"),
+    # fully automatic: no band numbers (the chips carry band descriptions B1..B12, VV, VH)
+    "S2 automatic (NDWI + confident MNDWI, edge Otsu)": ("S2Hand", {}, "auto", "edge"),
+    "S1 automatic (VV, speckle 5x5, edge Otsu)": ("S1Hand", {}, "auto", "edge"),
+    # alternatives
+    "S2 NDWI, edge Otsu": ("S2Hand", {"green": 3, "nir": 8, "swir1": 12, "blue": 2, "red": 4}, "ndwi", "edge"),
+    "S2 MNDWI, edge Otsu": ("S2Hand", {"green": 3, "nir": 8, "swir1": 12, "blue": 2, "red": 4}, "mndwi", "edge"),
+    "S2 MNDWI, tile Otsu": ("S2Hand", {"green": 3, "nir": 8, "swir1": 12, "blue": 2, "red": 4}, "mndwi", "tile"),
+    "S2 MNDWI, global Otsu": ("S2Hand", {"green": 3, "nir": 8, "swir1": 12, "blue": 2, "red": 4}, "mndwi", "global"),
+    "S1 VV, tile Otsu": ("S1Hand", {"vv": 1, "vh": 2}, "sar", "tile"),
+    "S1 VV, global Otsu": ("S1Hand", {"vv": 1, "vh": 2}, "sar", "global"),
 }
 
 

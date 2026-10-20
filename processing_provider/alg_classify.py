@@ -17,7 +17,7 @@ from qgis.core import (
 from .base import FloodDepthAlgorithm
 
 MODES = ["water", "trace"]
-INDEXES = ["auto", "mndwi", "ndwi", "sar"]
+INDEXES = ["auto", "consensus", "ndwi", "mndwi", "sar"]
 
 
 class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
@@ -40,7 +40,9 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
             "Water mask from satellite image file(s) with no training data. Bands are recognised from file "
             "names and metadata (Browser 'Raw' exports, Sentinel-2 SAFE, Landsat, multiband stacks with band "
             "names); set band numbers in the advanced parameters only for unnamed stacks.\n\n"
-            "Index: MNDWI when green and SWIR1 are present, else NDWI; Sentinel-1 VV/VH in dB or linear. "
+            "Index: with green, NIR and SWIR1, NDWI water plus confident MNDWI water (MNDWI > max(its "
+            "threshold, 0.3)) - the best-balanced rule on the Sen1Floods11 benchmark; else NDWI or MNDWI; "
+            "Sentinel-1 VV/VH in dB or linear, speckle-filtered. "
             "Threshold: edge-based Otsu (Donchyts et al. 2016) seeded at the physical threshold, with the "
             "separability eta reported (tile-based and global Otsu as options); an automatic "
             "threshold outside the physically usual range is refused with an explanation rather than used.\n\n"
@@ -59,8 +61,8 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
         self.addParameter(QgsProcessingParameterMultipleLayers(
             "PRE_IMAGES", "Pre-event image file(s)", QgsProcessing.TypeRaster, optional=True))
         self.addParameter(QgsProcessingParameterEnum(
-            "INDEX", "Water index", ["Automatic", "MNDWI (green, SWIR1)", "NDWI (green, NIR)",
-                                     "SAR backscatter (VV / VH)"], defaultValue=0))
+            "INDEX", "Water index", ["Automatic", "NDWI + confident MNDWI (green, NIR, SWIR1)",
+                                     "NDWI (green, NIR)", "MNDWI (green, SWIR1)", "SAR backscatter (VV / VH)"], defaultValue=0))
         self.number("THRESHOLD", "Manual threshold (empty = automatic)", "double", None, optional=True)
         self.addParameter(QgsProcessingParameterEnum(
             "TMETHOD", "Automatic threshold", ["Edge-based Otsu (recommended)", "Tile-based Otsu", "Global Otsu"],

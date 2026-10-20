@@ -22,7 +22,7 @@ from qgis.core import (
 from .base import FloodDepthAlgorithm, RasterStyle
 
 MODES = ["water", "trace"]
-INDEXES = ["auto", "mndwi", "ndwi", "sar"]
+INDEXES = ["auto", "consensus", "ndwi", "mndwi", "sar"]
 METHODS = ["dem", "hand"]
 INTERP = ["idw", "nearest"]
 
@@ -49,7 +49,7 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             "band (Copernicus / EO Browser 'Raw' B03, B08, B11 ..., Sentinel-2 SAFE, Landsat SR_B3 ...). Bands "
             "are recognised from file names and band metadata. Sentinel-1 VV / VH (linear or dB) are thresholded "
             "as dark water after a speckle filter. True-colour images and rendered SAR visualisations are refused with an explanation.\n\n"
-            "<b>Water at the overpass</b> (default) maps water with MNDWI / NDWI / SAR and an edge-based Otsu "
+            "<b>Water at the overpass</b> (default) maps water with NDWI + confident MNDWI (or SAR) and an edge-based Otsu "
             "threshold seeded at the physical value (0; -16 dB VV). <b>Flood trace</b> compares a pre-event and a post-event image and maps vegetation lost: "
             "use it when the water drained before the overpass (flash floods, debris flows); the trace is split "
             "into inundation and erosion / deposition evidence.\n\n"
@@ -96,8 +96,8 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
         self.number("DEM_SIGMA", "DEM vertical error, 1 sigma (m; 0 = from the DEM name)", "double", 0.0, 0.0, 50.0)
         # advanced
         self.addParameter(self.advanced(QgsProcessingParameterEnum(
-            "INDEX", "Water index", ["Automatic", "MNDWI (green, SWIR1)", "NDWI (green, NIR)",
-                                     "SAR backscatter (VV / VH)"], defaultValue=0)))
+            "INDEX", "Water index", ["Automatic", "NDWI + confident MNDWI (green, NIR, SWIR1)",
+                                     "NDWI (green, NIR)", "MNDWI (green, SWIR1)", "SAR backscatter (VV / VH)"], defaultValue=0)))
         self.number("THRESHOLD", "Manual threshold (empty = automatic)", "double", None, optional=True, adv=True)
         self.addParameter(self.advanced(QgsProcessingParameterEnum(
             "TMETHOD", "Automatic threshold", ["Edge-based Otsu (recommended)", "Tile-based Otsu", "Global Otsu"],
