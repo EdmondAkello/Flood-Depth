@@ -450,11 +450,19 @@ What this decided and shows:
   the underestimate is where the waterline sits within the edge cells, not the
   shape of the surface.
 * The **method-error term** (blocked cross-validation of the waterline) brings
-  the P10–P90 coverage to 80–96 % for valley-type floods (nominal 80 %).
+  the P10–P90 coverage to about 77–95 % for valley-type floods (nominal 80 %).
 * **Remaining bias — wide flat floodplains.** With water 3 m above the drainage
   over hundreds of km², depths are still about 0.5–0.8 m low and the band
-  covers 60–85 % of true depths. Treat depths of broad river-fed sheets as a
+  covers about 60–85 % of true depths. Treat depths of broad river-fed sheets as a
   lower estimate.
+* **Coverage varies between ensembles.** The DEM errors are spatially
+  correlated, so one 12-member ensemble is effectively a few independent
+  samples: at Mai Mahiu the coverage of a case moved by up to ±12 points
+  between random seeds (four seeds, 0.4.1 and the 0.4.2 ensemble alike). The
+  ranges above are means over seeds; the depth error itself does not depend on
+  the seed. In 0.4.2 each member has its own random stream and the noise field
+  no longer wraps around the window edges; mean coverage was unchanged for
+  valley floods and 5–8 points higher for HAND-type floods.
 
 ### 9.4 Case studies
 

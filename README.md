@@ -111,7 +111,7 @@ GitHub Actions runs the pure suites with and without SciPy, and a Bandit scan, o
 * **Classification** — all 446 hand-labelled chips of Sen1Floods11 (11 flood events, 11 countries),
   fully automatic: Sentinel-2 pooled CSI 0.74 (F1 0.85, area bias 1.01), Sentinel-1 VV 0.45.
 * **Depth** — known water surfaces imposed on FABDEM, ALOS, TanDEM-X and GLO-30 + HAND at Nyando and
-  Mai Mahiu; the uncertainty band covers 80–96 % of true depths for valley-type floods; the edge
+  Mai Mahiu; the uncertainty band covers about 77–95 % of true depths for valley-type floods; the edge
   water level is placed halfway up the edge step, which cuts the flat-floodplain underestimate by
   40–80 % (a smaller residual is documented).
 * **Case studies** — Nyando (Kano plains, 5 May 2024), Mai Mahiu (29 April 2024 flash flood, flood
