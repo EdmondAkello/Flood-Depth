@@ -11,6 +11,8 @@ All notable changes to FloodDepth are recorded here.
   brightest optical band. Juba (3 Dec 2023, clear): cloud mask 60.7 % -> 0.2 %, flooded area
   16.7 -> 20.7 km2.
 - The report said a pre-event image was used when its bands were not found.
+- **Pre-event image without SWIR1** (a Browser 'False color' export) was rejected because the
+  post-event index (NDWI + MNDWI) needs SWIR1; it now falls back to NDWI for permanent water.
 
 ### Performance
 - **Water-surface interpolation up to 50x faster on large grids.** `gdal.FillNodata` was asked to
@@ -28,6 +30,11 @@ All notable changes to FloodDepth are recorded here.
   the depth map. Page: section cards, KPIs with their P10-P90 ranges, result warnings separated
   from input notes, skipped rendered products collapsed into one line, inputs listed by file
   name per folder.
+- **Report prints on A4 portrait** (about 4 pages): summary and depth map, probability map with depth
+  and uncertainty, evidence / surface / classification, inputs / log / limitations. Collapsed
+  sections open for printing; colours and legends print.
+- Report maps are JPEG instead of PNG and embedded once: the Juba report fell from 6.5 MB to
+  well under 1 MB.
 
 ## [0.4.1] — 2026-10-20
 

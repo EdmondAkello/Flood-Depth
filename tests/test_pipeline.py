@@ -47,6 +47,14 @@ def main():
     check("run.json is valid JSON with the threshold", "threshold" in js["classification"])
     check("evidence: observed water", any(r["code"] == 1 for r in info["evidence"]))
 
+    print("\n1b. Pre-event image without SWIR1 (Browser 'False color' case): NDWI fallback")
+    pre_noswir = [p for p in pre if "B11" not in os.path.basename(p) and "B12" not in os.path.basename(p)]
+    info = q(image_paths=post, pre_paths=pre_noswir, out_dir=os.path.join(d, "a2"), uncertainty_members=0)
+    ci = info["classification"]
+    check("pre-event used for permanent water", ci.get("permanent_share", 0) > 0, str(ci.get("pre_bands")))
+    err, n, a, lake = depth_error(info["outputs"]["depth"])
+    check("no depth on the lake (NDWI pre-event)", not np.isfinite(a[lake]).any())
+
     print("\n2. Without the pre-event image the lake is not flood")
     info = q(image_paths=post, out_dir=os.path.join(d, "b"), uncertainty_members=0)
     err, n, a, lake = depth_error(info["outputs"]["depth"])

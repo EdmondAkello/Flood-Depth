@@ -99,23 +99,34 @@ class _nanwarn(object):
         self._w.__exit__(*a)
 
 
-def _png_b64(img):
-    """uint8 HxWx3 -> base64 PNG via GDAL (no extra dependency)."""
+def _png_b64(img, fmt="JPEG"):
+    """uint8 HxWx3 -> base64 image via GDAL (no extra dependency). JPEG by
+    default: a satellite backdrop is photographic, and PNG made each map
+    ~1.7 MB; JPEG at quality 88 keeps the depth colours and edges legible."""
     gdal = R._gdal()
     h, w, _ = img.shape
     mem = gdal.GetDriverByName("MEM").Create("", w, h, 3, gdal.GDT_Byte)
     for i in range(3):
         mem.GetRasterBand(i + 1).WriteArray(img[..., i])
-    path = "/vsimem/flooddepth_map_%d.png" % id(img)
-    gdal.GetDriverByName("PNG").CreateCopy(path, mem)
+    drv = gdal.GetDriverByName(fmt) or gdal.GetDriverByName("PNG")
+    ext = "jpg" if drv.ShortName == "JPEG" else "png"
+    path = "/vsimem/flooddepth_map_%d.%s" % (id(img), ext)
+    with R.quiet():
+        drv.CreateCopy(path, mem, options=["QUALITY=88"] if ext == "jpg" else [])
     fp = gdal.VSIFOpenL(path, "rb")
     gdal.VSIFSeekL(fp, 0, 2)
     size = gdal.VSIFTellL(fp)
     gdal.VSIFSeekL(fp, 0, 0)
     data = gdal.VSIFReadL(1, size, fp)
     gdal.VSIFCloseL(fp)
-    gdal.Unlink(path)
-    return base64.b64encode(data).decode("ascii")
+    for f in (path, path + ".aux.xml"):
+        try:
+            if gdal.VSIStatL(f) is not None:
+                gdal.Unlink(f)
+        except RuntimeError:
+            pass
+    mime = "image/jpeg" if ext == "jpg" else "image/png"
+    return mime + ";base64," + base64.b64encode(data).decode("ascii")
 
 
 # ---------------------------------------------------------------- framing
@@ -248,9 +259,8 @@ def _svg_map(b64, w, h, metres_per_px, inset=None, label=""):
     sb_px = sb_m / metres_per_px if metres_per_px else 0
     txt = f"{sb_m / 1000:g} km" if sb_m >= 1000 else f"{sb_m:g} m"
     p = [f"<svg class='map' viewBox='0 0 {w} {h}' role='img' aria-label='{html.escape(label)}' "
-         f"xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'>",
-         f"<image width='{w}' height='{h}' href='data:image/png;base64,{b64}' "
-         f"xlink:href='data:image/png;base64,{b64}' style='image-rendering:pixelated'/>"]
+         f"xmlns='http://www.w3.org/2000/svg'>",
+         f"<image width='{w}' height='{h}' href='data:{b64}'/>"]
     if sb_px > 0:
         x0, y0 = pad, h - pad
         bw = sb_px + 2 * fs * 0.6
@@ -278,8 +288,7 @@ def _svg_map(b64, w, h, metres_per_px, inset=None, label=""):
         bw_ = max(1.5, fs * 0.2)
         p.append(f"<rect x='{ix - bw_:.1f}' y='{iy - bw_:.1f}' width='{iw + 2 * bw_:.1f}' height='{ih + 2 * bw_:.1f}' "
                  "fill='#fff'/>"
-                 f"<image x='{ix:.1f}' y='{iy:.1f}' width='{iw:.1f}' height='{ih:.1f}' href='data:image/png;base64,{ib64}' "
-                 f"xlink:href='data:image/png;base64,{ib64}'/>"
+                 f"<image x='{ix:.1f}' y='{iy:.1f}' width='{iw:.1f}' height='{ih:.1f}' href='data:{ib64}'/>"
                  f"<rect x='{ix + fx:.1f}' y='{iy + fy:.1f}' width='{max(fw, 3):.1f}' height='{max(fh, 3):.1f}' "
                  f"fill='none' stroke='#d7301f' stroke-width='{bw_:.1f}'/>")
     p.append("</svg>")
@@ -357,7 +366,7 @@ def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=No
 def quicklook_png(depth, flood, dem, grid, max_px=900):
     """Kept for compatibility: the depth map as a bare base64 PNG (no frame furniture)."""
     m = maps(depth, flood, dem, grid, max_px=max_px)
-    found = re.search(r"base64,([A-Za-z0-9+/=]+)", m["depth"])
+    found = re.search(r"base64,([A-Za-z0-9+/=]+)", m["depth"])  # JPEG since 0.4.2
     return found.group(1) if found else ""
 
 
@@ -476,7 +485,7 @@ def _files_html(paths):
         if len(names) == 1:
             out.append(f"<div><b>{html.escape(names[0])}</b><div class='path'>{html.escape(d)}</div></div>")
         else:
-            out.append(f"<details><summary>{len(names)} files in <span class='path'>{html.escape(d)}</span>"
+            out.append(f"<details class='compact'><summary>{len(names)} files in <span class='path'>{html.escape(d)}</span>"
                        f"</summary><ul class='files'>" + "".join(f"<li>{html.escape(n)}</li>" for n in names)
                        + "</ul></details>")
     return "".join(out)
@@ -533,7 +542,36 @@ figcaption{font-size:13px;color:var(--mute);margin-top:8px}
 ul.files{margin:6px 0 0;padding-left:18px;font-size:13px}
 ol,ul{padding-left:20px;margin:0}li{margin:3px 0}
 code{font-size:13px}
-@media print{html,body{background:#fff}.card{box-shadow:none;break-inside:avoid}header{border:0}}
+@page{size:A4 portrait;margin:12mm 11mm 14mm}
+@media print{
+:root{--page:#fff;--card:#fff;--fg:#111;--mute:#555;--line:#d4d7db;--acc:#08519c;--warn:#5a3c00;--warnbg:#fff6e0;
+--warnline:#e6c77d;--info:#333;--infobg:#f4f5f7;--infoline:#d8dce1;--shadow:none}
+*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+html,body{background:#fff;font-size:9.5pt;line-height:1.4}
+.wrap{max-width:none;padding:0}
+header{border:0;background:#fff}header .wrap{padding:0 0 3mm}
+h1{font-size:15pt}h2{font-size:11pt;margin-bottom:2mm}h3{font-size:9.5pt}.meta{font-size:8.5pt}
+.kpis{grid-template-columns:repeat(3,1fr);gap:2mm;margin-top:3mm}
+.kpi{padding:2mm 3mm;border:1px solid var(--line)}.kpi b{font-size:13pt}.kpi span,.kpi small{font-size:7.5pt}
+main.wrap{padding:0}
+.card{border:1px solid var(--line);border-radius:2mm;padding:3mm 4mm;box-shadow:none}
+.card+.card,.cols+.card,.card+.cols,.cols+.cols{margin-top:3mm}
+.cols{grid-template-columns:1fr 1fr;gap:3mm}
+h2,h3{break-after:avoid}
+figure.prob,.pg{break-before:page}
+figure.prob svg.map{max-height:105mm}
+.cols>.card,.card.keep,.warn,.note,figure,tr{break-inside:avoid}
+.maps{grid-template-columns:1fr;gap:4mm}
+section.mapcard{break-inside:auto}
+svg.map{max-height:118mm;width:auto;max-width:100%;margin:0 auto}
+table{font-size:8.5pt}th,td{padding:.6mm 1.5mm}
+.sub,figcaption,.path,ul.files,.sw,.lgt{font-size:7.5pt}
+.ticks{font-size:7pt;height:11px}
+details>summary{list-style:none;color:var(--fg)}details>summary::-webkit-details-marker{display:none}
+.printonly{display:block!important}
+.warn,.note{font-size:8.5pt;padding:1.5mm 2.5mm}
+}
+.printonly{display:none}
 """
 
 LIMITS = [
@@ -612,16 +650,16 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
             where = (f"{fw:,.1f} x {fhh:,.1f} km around the main flood area ({100 * m['held']:.0f} % of the "
                      "flooded cells); the inset shows the whole analysis area (flood in dark blue, frame in red)"
                      if m["zoomed"] else f"the whole analysis area, {fw:,.1f} x {fhh:,.1f} km")
-            h.append("<section class='card'><h2>Maps</h2><div class='maps'>")
+            h.append("<section class='card mapcard'><h2>Maps</h2><div class='maps'>")
             h.append("<figure>" + m["depth"] + _gradient_legend(DEPTH_RAMP, "m", "Depth (m)", "m")
-                     + _swatches(sw) + "</figure>")
+                     + _swatches(sw) + f"<p class='sub'>Background: {html.escape(m['backdrop'])}. "
+                     f"Frame: {html.escape(where)}.</p></figure>")
             if "prob" in m:
-                h.append("<figure>" + m["prob"]
+                h.append("<figure class='prob'>" + m["prob"]
                          + _gradient_legend(PROB_RAMP, "", "Flood probability (share of ensemble members)", " ")
                          + "<p class='sub'>Where the probability is low the extent itself is uncertain (threshold, "
                          "edge position); depths there matter less than whether it flooded at all.</p></figure>")
-            h.append(f"</div><p class='sub'>Background: {html.escape(m['backdrop'])}. Frame: {html.escape(where)}.</p>"
-                     "</section>")
+            h.append("</div></section>")
         except Exception as exc:  # the report must not fail the run
             h.append(f"<section class='card'><p class='sub'>Maps not drawn: {html.escape(str(exc))}</p></section>")
 
@@ -673,7 +711,7 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
 
     # evidence + surface
     ev = info.get("evidence")
-    h.append("<div class='cols'>")
+    h.append("<div class='cols pg'>")
     if ev:
         h.append("<section class='card'><h2>What the extent is based on</h2><table>")
         h.append("<tr><th>Evidence</th><td><b>km²</b></td><td><b>Mean depth (m)</b></td>"
@@ -725,7 +763,7 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
 
     # inputs + log
     g = info.get("grid", {})
-    h.append("<div class='cols'><section class='card'><h2>Inputs and analysis grid</h2><table>")
+    h.append("<div class='cols pg'><section class='card'><h2>Inputs and analysis grid</h2><table>")
     h.append(_row("Analysis grid", f"{g.get('cols', 0):,} x {g.get('rows', 0):,} cells of {g.get('cell_x', 0):g} m "
                   f"({(g.get('cols') or 0) * (g.get('rows') or 0) / 1e6:.1f} M cells), {g.get('crs')}"))
     for key, lab in (("dem_path", "DEM"), ("hand_path", "HAND raster"), ("image_paths", "Image files"),
@@ -741,7 +779,7 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
                                          "edge_step_cap", "interpolation", "min_fraction", "uncertainty_members")
               if o.get(kk) not in (None, "")]
     if params:
-        h.append("<tr><th>Parameters</th><td><details><summary>" + f"{len(params)} settings</summary><table>"
+        h.append("<tr><th>Parameters</th><td><details class='compact'><summary>" + f"{len(params)} settings</summary><table>"
                  + "".join(_row(a, b) for a, b in params) + "</table></details></td></tr>")
     h.append("</table></section><section class='card'><h2>Processing log</h2><ol>")
     h += [f"<li>{html.escape(x)}</li>" for x in info.get("steps", [])]
@@ -753,9 +791,16 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
             f"<tr><th>{html.escape(k)}</th><td>{_duration(v)} ({100 * v / tot:.0f} %)</td></tr>"
             for k, v in tm.items()) + "</table>")
     h.append("</section></div>")
-    h.append("<section class='card'><details><summary><b>Limitations</b> - read before using the depths</summary><ul>")
+    h.append("<section class='card keep'><details><summary><b>Limitations</b> - read before using the depths</summary><ul>")
     h += [f"<li>{html.escape(x)}</li>" for x in LIMITS]
-    h.append("</ul></details></section></main></body></html>")
+    h.append("</ul></details></section>")
+    h.append("<p class='printonly sub'>FloodDepth run report - output folder: "
+             + html.escape(str(o.get("out_dir") or "")) + "</p></main>")
+    # print: every collapsed section opens, then closes again afterwards
+    h.append("<script>(function(){var o=[];addEventListener('beforeprint',function(){o=[];"
+             "document.querySelectorAll('details:not([open]):not(.compact)').forEach(function(d){d.open=true;o.push(d)})});"
+             "addEventListener('afterprint',function(){o.forEach(function(d){d.open=false})})})();</script>")
+    h.append("</body></html>")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(h))
     return path
