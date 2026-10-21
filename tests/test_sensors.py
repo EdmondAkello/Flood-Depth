@@ -127,10 +127,42 @@ def test_scene_scale():
     check("scene p99 taken from the brightest band", I.scene_p99(sc) > 12000)
 
 
+def test_sar_uint16():
+    """Browser 'Raw' Sentinel-1 in UINT16 is linear backscatter x 65535; it was
+    read as dB, so nothing looked dark and no water was found (Nyando, 6 May 2024)."""
+    print("\n6. Sentinel-1 UINT16 export (linear x 65535)")
+    import os
+    import tempfile
+    import numpy as np
+    from osgeo import gdal
+    from ..core import imagery as I, raster as R
+    d = tempfile.mkdtemp()
+    rng = np.random.default_rng(2)
+    water = np.zeros((80, 80), bool)
+    water[20:50, 10:40] = True
+    paths = []
+    for pol, (w, l) in (("VV", (0.01, 0.15)), ("VH", (0.002, 0.03))):
+        lin = np.where(water, w, l) * rng.gamma(4.0, 0.25, water.shape)
+        p = os.path.join(d, f"2024-05-06-00_00_2024-05-06-23_59_Sentinel-1_AWS-IW-VVVH_{pol}_(Raw).tiff")
+        ds = gdal.GetDriverByName("GTiff").Create(p, 80, 80, 2, gdal.GDT_UInt16)
+        ds.SetGeoTransform((34.5, 0.0001, 0, -0.2, 0, -0.0001))
+        ds.SetProjection(R.srs_from_epsg(4326).ExportToWkt())
+        ds.GetRasterBand(1).WriteArray(np.clip(lin * 65535, 0, 65535).astype("uint16"))
+        ds.GetRasterBand(2).WriteArray(np.ones((80, 80), "uint16"))
+        ds = None
+        paths.append(p)
+    r = I.classify_image(paths)
+    t = r["info"]["threshold"]["threshold"]
+    share = r["info"]["water_share"]
+    check("threshold in the SAR water range (dB)", -26 < t < -10, f"{t:.1f} dB")
+    check("the water block is found", 0.1 < share < 0.2, f"{100 * share:.1f} % (true 14 %)")
+
+
 if __name__ == "__main__":
     test_names()
     test_composites()
     test_metadata()
     test_scale()
     test_scene_scale()
+    test_sar_uint16()
     finish("test_sensors")

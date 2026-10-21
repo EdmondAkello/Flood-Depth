@@ -241,7 +241,9 @@ def run_quick(opt, progress=None, log=print):
                  "are flow paths; depths there are the least certain (see the uncertainty bands).")
     if neg / max(1, flood.sum()) > 0.1:
         W.append(f"{100 * neg / flood.sum():.0f} % of flood cells lie above the estimated water surface "
-                 "(depth set to 0): the extent includes high ground or the DEM is a surface model there.")
+                 "(depth set to 0): the extent includes high ground (wet soil, vegetation or crops classed as "
+                 "water) or the DEM is a surface model there. They are marked 'doubtful' in evidence.tif and in "
+                 "pink on the report's depth map; check them against the image before using the extent.")
 
     lap("water surface and depth")
     # 5. evidence classes and uncertainty
@@ -250,7 +252,9 @@ def run_quick(opt, progress=None, log=print):
     if cls is not None and cls.get("bare") is not None:
         bare_g, _ = R.mask_to_grid(cls["bare"], cls["valid"], cls["grid"], grid, 0.5)
     source = "polygons" if cls is None else ("trace" if opt.mode == "trace" else "image")
-    evid = U.evidence_classes(flood, source, bare_g, slope, opt.steep_slope_pct)
+    with np.errstate(invalid="ignore"):
+        above = flood & np.isfinite(surf) & np.isfinite(base) & (surf < base)
+    evid = U.evidence_classes(flood, source, bare_g, slope, opt.steep_slope_pct, above=above)
     ca = grid.cell_area()
     unc = None
     if opt.uncertainty_members and opt.uncertainty_members >= 2:
@@ -355,6 +359,7 @@ def run_quick(opt, progress=None, log=print):
         def bd(g, _sc=cls["scene"]):
             return I.backdrop(_sc, g)
     write_report(rpath, info, depth=depth, flood=flood, dem=dem, grid=grid, valid=valid, other=other,
+                 doubtful=evid == 5,
                  prob=None if unc is None else unc["prob"], backdrop=bd)
     info["outputs"]["report"] = rpath
     lap("report")

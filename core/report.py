@@ -28,6 +28,7 @@ TINT_RAMP = [(0.0, (222, 233, 214)), (0.5, (236, 228, 204)), (1.0, (219, 200, 17
 PERMANENT_RGB = (120, 80, 160)       # same as the water_mask colour table
 OUTLINE_RGB = (8, 37, 78)
 NODATA_RGB = (205, 205, 205)
+DOUBTFUL_RGB = (231, 138, 195)      # evidence class 5 (same as evidence.tif)
 
 MAP_PX = 1000
 INSET_PX = 210
@@ -295,7 +296,8 @@ def _svg_map(b64, w, h, metres_per_px, inset=None, label=""):
     return "".join(p)
 
 
-def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=None, max_px=MAP_PX):
+def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=None, max_px=MAP_PX,
+         doubtful=None):
     """Build the report maps. Returns dict with 'depth' (svg), optional 'prob' (svg),
     'backdrop' (label) and 'frame' (description)."""
     rows, cols = flood.shape
@@ -327,7 +329,10 @@ def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=No
     if od is not None:
         common.append((od & ~fany, PERMANENT_RGB, 0.85))
     dcol = ramp(np.nan_to_num(dd), DEPTH_RAMP)
-    img = _compose(base, common + [(fany & np.isfinite(dd), dcol, 0.9),
+    dbt = None
+    if doubtful is not None and np.any(doubtful):
+        dbt = (_block(doubtful[sl], step, "frac") >= 0.5) & fany
+    img = _compose(base, common + [(fany & np.isfinite(dd), dcol, 0.9), (dbt, DOUBTFUL_RGB, 0.85),
                                    (_outline(fmaj) if step > 1 else _outline(fany), OUTLINE_RGB, 0.9)])
     mpp = grid.cell_x * step
     inset = None
@@ -350,7 +355,7 @@ def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=No
         fx, fy = c0 / istep * sc, r0 / istep * sc
         fw, fh = w / istep * sc, h / istep * sc
         inset = (_png_b64(iimg), round(dispw), round(disph), (fx, fy, fw, fh))
-    out = {"backdrop": blabel, "zoomed": zoomed, "held": held,
+    out = {"backdrop": blabel, "zoomed": zoomed, "held": held, "doubtful": bool(dbt is not None and dbt.any()),
            "frame_km": (w * grid.cell_x / 1000.0, h * grid.cell_y / 1000.0),
            "depth": _svg_map(_png_b64(img), dw, dh, mpp, inset, "Flood depth map")}
     if prob is not None:
@@ -450,6 +455,9 @@ def group_notes(warnings, input_notes):
         m = _RENDERED.match(w)
         if m:
             skipped[m.group(1) or ""].append(m.group(2))
+            continue
+        if w.startswith("Pre-event image is a rendered"):
+            res.append((w, None))
             continue
         if w.startswith("Pre-event image not used"):
             res.append(("Pre-event image not used: its folder holds no raw water-index bands (green, NIR, "
@@ -594,7 +602,7 @@ LIMITS = [
 # ---------------------------------------------------------------- the report
 
 def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=None, other=None,
-                 prob=None, backdrop=None):
+                 prob=None, backdrop=None, doubtful=None):
     d = info.get("depth", {})
     cls = info.get("classification")
     s = info.get("surface", {})
@@ -641,11 +649,14 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
     # maps
     if depth is not None and grid is not None and flood is not None:
         try:
-            m = maps(depth, flood, dem, grid, valid=valid, other=other, prob=prob, backdrop=backdrop)
+            m = maps(depth, flood, dem, grid, valid=valid, other=other, prob=prob, backdrop=backdrop,
+                     doubtful=doubtful)
             fw, fhh = m["frame_km"]
             sw = [("flood edge", f"background:rgb{OUTLINE_RGB}")]
             if other is not None and other.any():
                 sw.append(("permanent water", f"background:rgb{PERMANENT_RGB}"))
+            if m.get("doubtful"):
+                sw.append(("doubtful: ground above the water surface", f"background:rgb{DOUBTFUL_RGB}"))
             sw.append(("no data / cloud", "background:repeating-linear-gradient(45deg,#999 0 2px,#ddd 2px 6px)"))
             where = (f"{fw:,.1f} x {fhh:,.1f} km around the main flood area ({100 * m['held']:.0f} % of the "
                      "flooded cells); the inset shows the whole analysis area (flood in dark blue, frame in red)"

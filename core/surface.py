@@ -54,6 +54,7 @@ Python loop.
 import numpy as np
 
 from . import raster as R
+from . import accel as A
 
 
 def neighbours_any(mask, connectivity=4):
@@ -96,6 +97,9 @@ def box_sum(a, r):
     a = np.asarray(a, dtype="float64")
     if r <= 0:
         return a.copy()
+    fast = A.box_sum(a, r)                           # SciPy, when available
+    if fast is not None:
+        return fast
     k = 2 * r + 1
     c = np.pad(a, ((r + 1, r), (r + 1, r)))
     c = np.cumsum(np.cumsum(c, axis=0), axis=1)
@@ -162,6 +166,9 @@ def nearest_seed(seeds, cell_x=1.0, cell_y=1.0, max_dist_cells=None):
     Returns (seed_row, seed_col, distance) with -1 / inf where no seed.
     """
     seeds = np.asarray(seeds, bool)
+    fast = A.nearest_index(seeds, cell_x, cell_y)   # SciPy, when available
+    if fast is not None:
+        return fast
     rows, cols = seeds.shape
     sr = np.full(seeds.shape, -1, dtype="int32")
     sc = np.full(seeds.shape, -1, dtype="int32")

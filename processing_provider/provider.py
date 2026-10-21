@@ -12,6 +12,7 @@ from qgis.core import QgsProcessingProvider
 from qgis.PyQt.QtGui import QIcon
 
 from .alg_quick import QuickFloodDepthAlgorithm
+from .alg_series import FloodSeriesAlgorithm
 from .alg_classify import ClassifyWaterAlgorithm
 from .alg_supervised import SupervisedWaterAlgorithm
 from .alg_surface import SurfaceFromExtentAlgorithm
@@ -22,7 +23,7 @@ from .alg_compare import CompareExtentsAlgorithm
 class FloodDepthProvider(QgsProcessingProvider):
 
     def loadAlgorithms(self):
-        for alg in (QuickFloodDepthAlgorithm(), ClassifyWaterAlgorithm(), SupervisedWaterAlgorithm(),
+        for alg in (QuickFloodDepthAlgorithm(), FloodSeriesAlgorithm(), ClassifyWaterAlgorithm(), SupervisedWaterAlgorithm(),
                     SurfaceFromExtentAlgorithm(), DepthFromSurfaceAlgorithm(), DepthConstantLevelAlgorithm(),
                     CompareExtentsAlgorithm()):
             self.addAlgorithm(alg)

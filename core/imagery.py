@@ -147,8 +147,18 @@ def compute_index(scene, index, grid=None, notes=None, speckle=2):
         grid = grid or _ref_grid(scene, [role])
         a = read_role(scene, role, grid, notes)
         finite = a[np.isfinite(a)]
-        linear = finite.size and np.nanpercentile(finite, 99) < 5.0 and np.nanmin(finite) >= 0
-        lin = a if linear else np.where(np.isfinite(a), 10.0 ** (a / 10.0), np.nan)
+        p99 = float(np.nanpercentile(finite, 99)) if finite.size else 0.0
+        dt = scene.dtype.get(role)
+        if dt in ("UInt16", "UInt32") and finite.size and np.nanmin(finite) >= 0 and p99 > 5.0:
+            # Copernicus Browser 'Raw' SAR in UINT16: linear backscatter x 65535.
+            # Read as dB, every pixel looked bright and no water was found.
+            lin = np.where(np.isfinite(a), np.maximum(a, 0.5) / 65535.0, np.nan)
+            linear = True
+            notes.append("SAR stored as unsigned integers (Copernicus Browser UINT16 export): read as linear "
+                         "backscatter x 65535.")
+        else:
+            linear = finite.size and p99 < 5.0 and np.nanmin(finite) >= 0
+            lin = a if linear else np.where(np.isfinite(a), 10.0 ** (a / 10.0), np.nan)
         if speckle and speckle > 0:
             from .surface import focal_mean
             m = np.isfinite(lin)
@@ -374,6 +384,10 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
                 pt = C.tile_threshold(pidx, pabove)
             pw, pv = C.classify(pidx, pt["threshold"], pabove)
             permanent, _ = R.mask_to_grid(pw, pv, pgrid, grid, 0.5)
+            if "false_color" in str(pre.kind) or "composite" in str(pre.kind):
+                notes.append("Pre-event image is a rendered colour composite (8-bit, stretched): permanent "
+                             "water was taken from it, but the Raw bands (B03, B08, B11) of the same date "
+                             "give a cleaner mask, especially at shallow lake and river margins.")
             info["permanent_threshold"] = pt["threshold"]
             info["permanent_share"] = float(permanent.sum() / max(1, valid.sum()))
         except ValueError as exc:

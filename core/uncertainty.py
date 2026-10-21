@@ -16,6 +16,11 @@ Evidence class (per flood cell, what the extent is based on)
                             describes the ground: depths are least certain
     4 steep flow path       ground steeper than the steep-slope limit:
                             water flowed, it did not pond
+    5 doubtful - ground     a mapped flood cell whose ground lies above the
+      above the surface     estimated water surface (depth set to 0): wet
+                            soil, vegetation or a DSM artefact classed as
+                            water, or the surface is too low there. Replaces
+                            classes 0-2 (not 3 or 4).
     0 polygon (given)       the extent came from a user layer
 
 Ensemble (Monte Carlo)
@@ -43,13 +48,16 @@ import os
 
 import numpy as np
 
+from . import accel as A
 from . import surface as SF
 from . import classify as C
 
 EVIDENCE = {0: "extent from polygons", 1: "observed water", 2: "trace - inundation",
-            3: "trace - erosion / deposition", 4: "steep flow path"}
+            3: "trace - erosion / deposition", 4: "steep flow path",
+            5: "doubtful - ground above the water surface"}
 EVIDENCE_COLORS = {0: (150, 150, 150, 255), 1: (33, 113, 181, 255), 2: (116, 196, 118, 255),
-                   3: (217, 95, 14, 255), 4: (203, 24, 29, 255), 255: (0, 0, 0, 0)}
+                   3: (217, 95, 14, 255), 4: (203, 24, 29, 255), 5: (231, 138, 195, 255),
+                   255: (0, 0, 0, 0)}
 
 DEM_PRESETS = (  # (key, label, sigma m, file-name patterns)
     ("lidar", "LiDAR / drone survey (0.15 m)", 0.15, ("lidar", "drone", "uav", "dtm_1m", "survey")),
@@ -72,23 +80,31 @@ def dem_sigma_from_name(path, default=2.0):
 
 def correlated_noise(shape, sigma, corr_cells, rng):
     """Zero-mean Gaussian random field with standard deviation `sigma` and a
-    Gaussian correlation of `corr_cells` (std of the kernel, in cells)."""
+    Gaussian correlation of `corr_cells` (std of the kernel, in cells).
+
+    Filtered in the Fourier domain on an FFT-friendly (2-3-5-smooth) size
+    padded by 3 correlation lengths, then cropped: awkward sizes (primes)
+    made the FFT up to 10x slower, and the padding removes the wrap-around
+    correlation between opposite edges."""
     rows, cols = shape
-    white = rng.standard_normal(shape)
     if corr_cells <= 0.5:
-        return (sigma * white).astype("float32")
-    ky = np.fft.fftfreq(rows)[:, None]
-    kx = np.fft.rfftfreq(cols)[None, :]
-    h = np.exp(-2.0 * (math.pi ** 2) * (corr_cells ** 2) * (kx ** 2 + ky ** 2))
-    f = np.fft.irfft2(np.fft.rfft2(white) * h, s=shape)
-    sd = f.std()
+        return (sigma * rng.standard_normal(shape, dtype="float32")).astype("float32")
+    pad = int(math.ceil(3 * corr_cells))
+    fr, fc = A.fast_shape((rows + pad, cols + pad))
+    white = rng.standard_normal((fr, fc), dtype="float32")
+    ky = np.fft.fftfreq(fr).astype("float32")[:, None]
+    kx = np.fft.rfftfreq(fc).astype("float32")[None, :]
+    h = np.exp(np.float32(-2.0 * math.pi ** 2 * corr_cells ** 2) * (kx ** 2 + ky ** 2))
+    f = A.irfft2(A.rfft2(white) * h, s=(fr, fc))[:rows, :cols]
+    sd = float(f.std())
     if sd <= 0:
         return np.zeros(shape, "float32")
-    return (sigma * f / sd).astype("float32")
+    return (np.float32(sigma / sd) * f).astype("float32")
 
 
-def evidence_classes(flood, source, bare=None, slope=None, steep_pct=10.0):
-    """uint8 evidence raster (see module notes); 255 outside the flood."""
+def evidence_classes(flood, source, bare=None, slope=None, steep_pct=10.0, above=None):
+    """uint8 evidence raster (see module notes); 255 outside the flood.
+    above: flood cells whose ground is above the estimated surface (class 5)."""
     out = np.full(flood.shape, 255, dtype="uint8")
     base = {"image": 1, "trace": 2, "polygons": 0}[source]
     out[flood] = base
@@ -96,6 +112,8 @@ def evidence_classes(flood, source, bare=None, slope=None, steep_pct=10.0):
         out[flood & bare] = 3
     if slope is not None:
         out[flood & (slope > steep_pct)] = 4
+    if above is not None:
+        out[flood & np.asarray(above, bool) & (out <= 2)] = 5
     return out
 
 
@@ -181,7 +199,6 @@ def run_ensemble(dem, valid, grid, base_flood, members=20, sigma_dem=2.0, corr_m
         shape (depth = surface - HAND; the DEM error is applied to HAND).
     Returns dict of full-grid arrays (prob, p10, p50, p90) and summary.
     """
-    rng = np.random.default_rng(seed)
     surface_kwargs = dict(surface_kwargs or {})
     surface_kwargs.pop("progress", None)
     flood_any = base_flood.copy()
@@ -222,44 +239,67 @@ def run_ensemble(dem, valid, grid, base_flood, members=20, sigma_dem=2.0, corr_m
     if method_cv:
         m_sd, m_block, m_n = method_error(elev, bf, v, sub, ow, surface_kwargs.get("interpolation", "idw"),
                                           rng=np.random.default_rng(seed + 1))
-    store = []
-    wet = np.zeros(shape, dtype="uint16")
-    areas, means, vols, failed = [], [], [], 0
-    ca = cx * cy
-    for i in range(members):
-        if progress:
-            progress(i / float(members), f"Uncertainty member {i + 1} of {members}")
-        e = elev + correlated_noise(shape, sigma_dem, corr_cells, rng)
+    # one independent random stream per member, drawn up front: the result
+    # does not depend on how the members are scheduled across threads
+    streams = [np.random.default_rng(s) for s in np.random.SeedSequence(seed).spawn(members)]
+
+    def member(i):
+        r = streams[i]
+        e = elev + correlated_noise(shape, sigma_dem, corr_cells, r)
         if ero is not None and sigma_erosion > 0:
-            e = np.where(ero, e + rng.normal(0.0, sigma_erosion, shape).astype("float32"), e)
+            e = np.where(ero, e + r.normal(0.0, sigma_erosion, shape).astype("float32"), e)
         if fo:
-            fr = fo[int(rng.integers(0, len(fo)))]
-            fl = v & (np.nan_to_num(fr) >= rng.uniform(0.3, 0.7))
+            fr = fo[int(r.integers(0, len(fo)))]
+            fl = v & (np.nan_to_num(fr) >= r.uniform(0.3, 0.7))
         else:
-            k = int(rng.integers(-edge_shift, edge_shift + 1))
+            k = int(r.integers(-edge_shift, edge_shift + 1))
             fl = shift_edge(bf, v, k)
         if ow is not None:
             fl &= ~ow
         if sm is not None:
             fl, _, _ = C.keep_connected(fl, sm)
         if fl.sum() < 3:
-            failed += 1
-            continue
+            return None
         try:
             s, _, _, _ = SF.estimate_surface(e, fl, v, sub, other_water=ow, **surface_kwargs)
         except ValueError:
-            failed += 1
-            continue
+            return None
         if m_sd > 0:
-            s = s + correlated_noise(shape, m_sd, max(1.0, m_block / 2.0), rng)
+            s = s + correlated_noise(shape, m_sd, max(1.0, m_block / 2.0), r)
         d, _ = SF.depth_from_surface(s, e, fl)
-        dd = np.nan_to_num(d, nan=0.0)
+        return fl, np.nan_to_num(d, nan=0.0).astype("float32")
+
+    nthreads = A.workers(members)
+    store = []
+    wet = np.zeros(shape, dtype="uint16")
+    areas, means, vols, failed = [], [], [], 0
+    ca = cx * cy
+    done = [0]
+
+    def collect(res):
+        nonlocal failed
+        done[0] += 1
+        if progress:
+            progress(done[0] / float(members), f"Uncertainty member {done[0]} of {members}")
+        if res is None:
+            failed += 1
+            return
+        fl, dd = res
         store.append(dd)
-        wet += fl.astype("uint16")
+        wet[...] += fl.astype("uint16")
         n = int(fl.sum())
         areas.append(n * ca / 1e6)
         means.append(float(dd[fl].mean()))
         vols.append(float(dd[fl].sum() * ca))
+
+    if nthreads > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=nthreads) as ex:
+            for res in ex.map(member, range(members)):   # map keeps member order
+                collect(res)
+    else:
+        for i in range(members):
+            collect(member(i))
     ok = members - failed
     if ok < 2:
         raise ValueError("Fewer than two uncertainty members succeeded.")
@@ -288,5 +328,6 @@ def run_ensemble(dem, valid, grid, base_flood, members=20, sigma_dem=2.0, corr_m
                "extent_perturbation": "threshold band + area fraction" if fo else f"edge shift +-{edge_shift} cell(s)",
                "area_km2_p10_p50_p90": pct(areas), "mean_depth_m_p10_p50_p90": pct(means),
                "volume_m3_p10_p50_p90": pct(vols), "seed": seed, "coarsening": f,
-               "method_sd_m": m_sd, "method_block_m": m_block * cx, "method_cv_cells": m_n}
+               "method_sd_m": m_sd, "method_block_m": m_block * cx, "method_cv_cells": m_n,
+               "threads": nthreads, "accelerator": A.describe()}
     return full, summary
