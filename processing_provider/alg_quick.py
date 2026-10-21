@@ -134,8 +134,9 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
         self.addOutput(QgsProcessingOutputVectorLayer("FLOOD_EXTENT", "Flood extent", QgsProcessing.TypeVectorPolygon))
         self.addOutput(QgsProcessingOutputFile("REPORT", "Run report (HTML)"))
 
-    def processAlgorithm(self, parameters, context, feedback):
-        from ..core.pipeline import QuickOptions, run_quick
+    def options(self, parameters, context, feedback):
+        """QuickOptions from the dialog (shared with the time-series tool)."""
+        from ..core.pipeline import QuickOptions
         images = self.raster_paths(parameters, "IMAGES", context)
         ext_wkts, ext_crs = self.vector_wkts(parameters, "EXTENT", context, feedback)
         if not images and not ext_wkts:
@@ -191,6 +192,12 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             raise QgsProcessingException("The HAND method needs a HAND raster.")
         if mode == "trace" and not opt.pre_paths:
             raise QgsProcessingException("Flood-trace mode needs the pre-event image file(s).")
+        return opt
+
+    def processAlgorithm(self, parameters, context, feedback):
+        from ..core.pipeline import run_quick
+        opt = self.options(parameters, context, feedback)
+        out_dir = opt.out_dir
         try:
             info = run_quick(opt, progress=self.progress(feedback), log=self.log(feedback))
         except QgsProcessingException:

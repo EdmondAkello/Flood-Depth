@@ -75,7 +75,7 @@ def main(in_qgis=False):
     QgsApplication.processingRegistry().addProvider(prov)
     ids = sorted(a.id() for a in prov.algorithms())
     print("\n1. Provider")
-    check("7 algorithms registered", len(ids) == 7, ", ".join(ids))
+    check("8 algorithms registered", len(ids) == 8, ", ".join(ids))
     for old in ("flooddepth:classify_inundation", "flooddepth:compute_flood_depth",
                 "flooddepth:compute_constant_stage_depth", "flooddepth:estimate_stage_dem_boundary"):
         check(f"0.3 id kept: {old}", old in ids)
@@ -111,6 +111,16 @@ def main(in_qgis=False):
     check("P10 <= P90 everywhere", bool(np.all(p10[ok] <= p90[ok] + 1e-5)))
     with open(r["REPORT"], encoding="utf-8") as fh:
         check("report mentions the uncertainty", "Uncertainty" in fh.read())
+
+    print("\n2b. Flood depth over time (two dates in one file list)")
+    post2 = S.write_s2_raw(os.path.join(tmp, "post"), "2024-05-12", flooded=True, seed=5)
+    rs = processing.run("flooddepth:flooddepthseries", {
+        "IMAGES": post + post2, "PRE_IMAGES": pre, "DEM": dem, "MEMBERS": 3,
+        "OUT_DIR": os.path.join(tmp, "series")})
+    for f in ("max_depth.tif", "dates_flooded.tif", "series.csv", "series.html",
+              os.path.join("2024-05-05", "depth.tif"), os.path.join("2024-05-12", "report.html")):
+        check(f"series writes {f}", os.path.exists(os.path.join(tmp, "series", f)))
+    check("series returns the summary", rs.get("SUMMARY", "").endswith("series.html"))
 
     print("\n3. Quick flood depth from a polygon extent")
     r2 = processing.run("flooddepth:quickflooddepth", {"EXTENT": ext, "DEM": dem, "MEMBERS": 0,
