@@ -146,7 +146,7 @@ def method_error(elev, flood, valid, grid, other_water=None, interpolation="idw"
         if train.sum() < 10 or held.sum() < 5:
             continue
         if interpolation == "idw":
-            pred = SF.fill_from_points(elev, train, grid)
+            pred = SF.fill_from_points(elev, train, grid, max_search=SF.search_distance(train, held))
         else:
             pred, _ = SF.fill_nearest(elev, train, grid.cell_x, grid.cell_y, targets=held)
         r = (elev - pred)[held]

@@ -2,6 +2,33 @@
 
 All notable changes to FloodDepth are recorded here.
 
+## [Unreleased]
+
+### Fixed
+- **Bright-cloud test scaled band by band.** In a Copernicus Browser uint16 export (reflectance
+  x 65535) a dark blue band (dry soil) sits below 12000 and was read as x 10000, 6.5 times too
+  bright, so clear land was masked as cloud. The scale is now decided once per scene from the
+  brightest optical band. Juba (3 Dec 2023, clear): cloud mask 60.7 % -> 0.2 %, flooded area
+  16.7 -> 20.7 km2.
+- The report said a pre-event image was used when its bands were not found.
+
+### Performance
+- **Water-surface interpolation up to 50x faster on large grids.** `gdal.FillNodata` was asked to
+  search the whole window for every cell; the search now stops at twice the farthest flood
+  cell's distance to its waterline (+10 cells). Surface unchanged to millimetres. Quick run:
+  Nyando 220 -> 52 s, Juba (7.8 M cells) 288 -> 33 s. Same cap in the method cross-validation.
+- Per-stage run times in `run.json` (`timings`) and in the report.
+
+### Changed
+- **Report redesigned.** Maps are framed on the main flood area (the smallest window holding 80 %
+  of the flooded cells) with an overview inset, scale bar and north arrow, drawn over the
+  satellite image itself (true or false colour, read from overviews) or, without one, over a
+  relief-stretched hillshade with an elevation tint so flat floodplains are not a uniform grey.
+  Permanent water and NoData / cloud have their own symbols. A flood-probability map sits beside
+  the depth map. Page: section cards, KPIs with their P10-P90 ranges, result warnings separated
+  from input notes, skipped rendered products collapsed into one line, inputs listed by file
+  name per folder.
+
 ## [0.4.1] — 2026-10-20
 
 ### Changed

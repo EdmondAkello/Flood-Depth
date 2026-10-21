@@ -369,6 +369,54 @@ def warp_array(arr, src_grid, dst_grid, resample="bilinear"):
     return db.ReadAsArray().astype("float32")
 
 
+def sample_band(path, band=1, max_px=600):
+    """A decimated read of one band (NoData, alpha and zero removed) for
+    statistics: a 1-D array of the valid values, or None."""
+    gdal = _gdal()
+    with quiet():
+        ds = gdal.Open(str(path))
+        if ds is None:
+            return None
+        f = max(1, int(math.ceil(max(ds.RasterXSize, ds.RasterYSize) / float(max_px))))
+        w, h = max(1, ds.RasterXSize // f), max(1, ds.RasterYSize // f)
+        a = ds.GetRasterBand(band).ReadAsArray(buf_xsize=w, buf_ysize=h)
+        alpha = alpha_band_index(ds)
+        m = np.ones(a.shape, bool) if not alpha or alpha == band else \
+            ds.GetRasterBand(alpha).ReadAsArray(buf_xsize=w, buf_ysize=h) > 0
+    if a is None:
+        return None
+    a = a.astype("float64")
+    nd = ds.GetRasterBand(band).GetNoDataValue()
+    m &= np.isfinite(a) & (a != 0)
+    if nd is not None:
+        m &= a != nd
+    return a[m]
+
+
+def warp_file(path, band, grid, resample="average"):
+    """One band of a file straight onto a (usually coarse) grid; GDAL reads
+    overviews / decimates, so this is cheap for a display-sized grid.
+    NoData and an alpha band are honoured; zero is treated as NoData.
+    Returns a float32 array with NaN outside the data."""
+    gdal = _gdal()
+    with quiet():
+        src = gdal.Open(str(path))
+        if src is None:
+            return None
+        alpha = alpha_band_index(src)
+        bands = [band] + ([alpha] if alpha and alpha != band else [])
+        vrt = gdal.Translate("", src, format="VRT", bandList=bands)
+        if alpha and alpha != band:
+            vrt.GetRasterBand(2).SetColorInterpretation(gdal.GCI_AlphaBand)
+        nd = src.GetRasterBand(band).GetNoDataValue()
+        dst = gdal.Warp("", vrt, format="MEM", outputBounds=grid.bounds, width=grid.cols, height=grid.rows,
+                        dstSRS=grid.wkt, resampleAlg=resample, outputType=gdal.GDT_Float32,
+                        srcNodata=nd if nd is not None else 0, dstNodata=float("nan"), multithread=False)
+    if dst is None:
+        return None
+    return dst.GetRasterBand(1).ReadAsArray().astype("float32")
+
+
 def read_on_grid(path, grid, band=1, resample="bilinear", zero_nodata_auto=False):
     """Read one band, mask it, and warp it onto `grid`. Returns (array, notes)."""
     arr, g, notes = read_band(path, band, zero_nodata_auto=zero_nodata_auto)
