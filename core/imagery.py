@@ -355,7 +355,14 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
     if pre is not None and mode == "water":
         step(0.55, "Pre-event water (permanent water)")
         try:
-            pname = choose_index(pre, iname if iname != "sar" else "auto")
+            try:
+                pname = choose_index(pre, iname if iname != "sar" else "auto")
+            except ValueError:
+                # the pre-event image only has to show where water already was: any
+                # water index will do (a Browser 'False color' export has no SWIR1)
+                pname = choose_index(pre, "auto")
+                notes.append(f"pre-event: {pname.upper()} used for permanent water (the bands for "
+                             f"{iname.upper()} are not in the pre-event files).")
             pidx, pgrid, pabove, _ = compute_index(pre, pname, None, notes)
             pv = np.isfinite(pidx)
             if threshold is not None:
