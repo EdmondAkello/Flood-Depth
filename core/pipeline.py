@@ -338,7 +338,12 @@ def run_quick(opt, progress=None, log=print):
                  "polygons": npoly, "seconds": round(time.time() - t0, 1)})
     from .report import write_report
     rpath = os.path.join(opt.out_dir, "report.html")
-    write_report(rpath, info, depth=depth, flood=flood, dem=dem, grid=grid)
+    bd = None
+    if cls is not None and cls.get("scene") is not None:
+        def bd(g, _sc=cls["scene"]):
+            return I.backdrop(_sc, g)
+    write_report(rpath, info, depth=depth, flood=flood, dem=dem, grid=grid, valid=valid, other=other,
+                 prob=None if unc is None else unc["prob"], backdrop=bd)
     info["outputs"]["report"] = rpath
     with open(os.path.join(opt.out_dir, "run.json"), "w", encoding="utf-8") as f:
         json.dump(_jsonable(info), f, indent=2)

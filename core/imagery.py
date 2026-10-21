@@ -187,6 +187,23 @@ def plausible_range(iname, scene, sar_band=None):
     return None
 
 
+def scene_p99(scene, first=None):
+    """The largest 99th percentile over the optical bands of a scene.
+
+    The storage scale (x 10000 or x 65535) is a property of the export, not of
+    a band: a dark band (blue over dry soil) can sit below 12000 in a x 65535
+    export, which read alone would be scaled as x 10000 - 6.5 times too
+    bright, and clear land then passes the bright-cloud test."""
+    vals = [first] if first is not None else []
+    for r in ("blue", "green", "red", "nir", "swir1"):
+        if r in scene.sources:
+            pth, b = scene.sources[r]
+            a = R.sample_band(pth, b)
+            if a is not None and a.size:
+                vals.append(float(np.percentile(a, 99)))
+    return max(vals) if vals else None
+
+
 def bright_cloud(scene, grid, threshold, notes):
     """Cells whose blue reflectance exceeds `threshold` (approximate)."""
     if not threshold or threshold <= 0 or "blue" not in scene.sources:
@@ -195,7 +212,7 @@ def bright_cloud(scene, grid, threshold, notes):
     fin = blue[np.isfinite(blue)]
     if fin.size == 0:
         return None
-    scale = S.reflectance_scale(scene.dtype.get("blue"), float(np.percentile(fin, 99)))
+    scale = S.reflectance_scale(scene.dtype.get("blue"), scene_p99(scene, float(np.percentile(fin, 99))))
     with np.errstate(invalid="ignore"):
         return np.isfinite(blue) & (blue * scale > threshold)
 
@@ -354,6 +371,7 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
             info["permanent_share"] = float(permanent.sum() / max(1, valid.sum()))
         except ValueError as exc:
             notes.append(f"Pre-event image not used: {exc}")
+            info["pre_bands"] = "not used (the water-index bands were not found)"
             permanent = None
 
     step(0.7, "Cleaning the mask")
@@ -399,6 +417,48 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
     return {"water": cleaned, "water_raw": water, "valid": valid, "grid": grid, "permanent": permanent,
             "cloud": cloud, "index": idx, "info": info, "scene": scene,
             "water_incl": incl, "water_excl": excl, "bare": bare}
+
+
+def backdrop(scene, grid):
+    """A display backdrop on `grid` (normally coarse): (rgb float 0-1, label) or None.
+
+    True colour when red, green and blue are present, else false colour
+    (NIR, red, green), else grey SAR backscatter. Each channel is stretched
+    between its 2nd and 98th percentile. Read with overview-aware warping, so
+    it is cheap even for large scenes."""
+    if scene is None:
+        return None
+    for roles, label in ((("red", "green", "blue"), "true colour"), (("nir", "red", "green"), "false colour"),
+                         (("vv",), "SAR VV"), (("vh",), "SAR VH")):
+        if not all(r in scene.sources for r in roles):
+            continue
+        chans = []
+        for r in roles:
+            pth, b = scene.sources[r]
+            a = R.warp_file(pth, b, grid)
+            if a is None:
+                break
+            if label.startswith("SAR"):
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    lin = np.nanpercentile(a, 99) < 5.0 if np.isfinite(a).any() else False
+                    a = 10.0 * np.log10(np.where(a > 0, a, np.nan)) if lin else a
+            chans.append(a)
+        if len(chans) != len(roles):
+            continue
+        out = []
+        for a in chans:
+            fin = a[np.isfinite(a)]
+            if fin.size < 16:
+                break
+            lo, hi = np.percentile(fin, [2, 98])
+            out.append(np.clip((a - lo) / max(hi - lo, 1e-9), 0, 1))
+        if len(out) != len(chans):
+            continue
+        rgb = np.stack(out * 3 if len(out) == 1 else out, axis=-1)
+        valid = np.all(np.isfinite(np.stack(chans, -1)), axis=-1)
+        rgb[~valid] = np.nan
+        return rgb.astype("float32"), label + (f", {scene.date}" if scene.date else "")
+    return None
 
 
 MASK_COLORS = {0: (235, 228, 210, 255), 1: (30, 110, 200, 255), 2: (120, 80, 160, 255), 255: (0, 0, 0, 0)}

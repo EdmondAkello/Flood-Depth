@@ -97,9 +97,40 @@ def test_scale():
     check("Float reflectance -> 1", S.reflectance_scale("Float32", 0.9) == 1.0)
 
 
+def test_scene_scale():
+    """A x 65535 export whose blue band is dark (dry soil) must not be scaled
+    band by band: blue alone looks like x 10000 and clear land became 'cloud'
+    (Juba, Dec 2023: 61 % of a clear scene masked)."""
+    print("\n5. Scene-wide reflectance scale (bright-cloud test)")
+    import os
+    import tempfile
+    import numpy as np
+    from osgeo import gdal
+    from ..core import imagery as I, raster as R
+    d = tempfile.mkdtemp()
+    rng = np.random.default_rng(1)
+    vals = {"B02": 2200, "B03": 4200, "B04": 3000, "B08": 20000, "B11": 14000}
+    paths = []
+    for b, v in vals.items():
+        p = os.path.join(d, f"2023-12-03-00_00_2023-12-03-23_59_Sentinel-2_L2A_{b}_(Raw).tiff")
+        ds = gdal.GetDriverByName("GTiff").Create(p, 60, 60, 1, gdal.GDT_UInt16)
+        ds.SetGeoTransform((500000, 10, 0, 100000, 0, -10))
+        sr = R.srs_from_epsg(32638)
+        ds.SetProjection(sr.ExportToWkt())
+        ds.GetRasterBand(1).WriteArray((v * rng.uniform(0.5, 1.6, (60, 60))).astype("uint16"))
+        ds = None
+        paths.append(p)
+    sc = I.scene_from_paths(paths)
+    g = R.grid_of(R.open_dataset(paths[0]))
+    cl = I.bright_cloud(sc, g, 0.25, [])
+    check("blue in a x 65535 export is not cloud", cl is not None and cl.mean() == 0.0, f"{cl.mean():.2f}")
+    check("scene p99 taken from the brightest band", I.scene_p99(sc) > 12000)
+
+
 if __name__ == "__main__":
     test_names()
     test_composites()
     test_metadata()
     test_scale()
+    test_scene_scale()
     finish("test_sensors")
