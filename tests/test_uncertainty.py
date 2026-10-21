@@ -39,6 +39,11 @@ def main():
     check("outside 255, inundation 2, erosion 3, steep 4",
           ev[0, 0] == 255 and ev[0, 1] == 2 and ev[1, 1] == 3 and ev[2, 2] == 4)
     check("image extent -> observed water", U.evidence_classes(flood, "image")[1, 1] == 1)
+    above = np.zeros_like(flood)
+    above[0, 1] = above[1, 1] = above[2, 2] = True
+    ev5 = U.evidence_classes(flood, "trace", bare, slope, 10.0, above=above)
+    check("ground above the surface -> doubtful 5, but erosion 3 and steep 4 are kept",
+          ev5[0, 1] == 5 and ev5[1, 1] == 3 and ev5[2, 2] == 4 and ev5[0, 0] == 255)
 
     print("\n3. Method error (blocked cross-validation of the waterline)")
     z, wse, fl = plane_case()

@@ -29,6 +29,7 @@ import math
 import numpy as np
 
 from . import raster as R
+from . import accel as A
 
 
 # -- indices ----------------------------------------------------------
@@ -244,12 +245,15 @@ def label_components(mask, connectivity=8):
     Uses gdal.Polygonize then rasterizes each polygon with its id: both
     are C++ calls, so this is fast on large grids with no SciPy.
     """
-    gdal = R._gdal()
-    from osgeo import ogr
     mask = np.asarray(mask, dtype=bool)
     rows, cols = mask.shape
     if not mask.any():
         return np.zeros(mask.shape, "int32"), 0
+    fast = A.label(mask, connectivity)               # SciPy, when available
+    if fast is not None:
+        return fast
+    gdal = R._gdal()
+    from osgeo import ogr
     mem = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Byte)
     mem.SetGeoTransform((0.0, 1.0, 0.0, float(rows), 0.0, -1.0))
     b = mem.GetRasterBand(1)

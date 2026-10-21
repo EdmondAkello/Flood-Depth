@@ -11,12 +11,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install NumPy and GDAL
+      - name: Install NumPy, GDAL and SciPy (SciPy is an optional accelerator)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-numpy python3-gdal
-      - name: Run suites
+          sudo apt-get install -y --no-install-recommends python3-numpy python3-gdal python3-scipy
+      - name: Run suites (with SciPy)
         run: bash tools/dev/ci_pure.sh
+      - name: Run suites again without SciPy (the NumPy / GDAL fallbacks)
+        run: FLOODDEPTH_NO_SCIPY=1 bash tools/dev/ci_pure.sh
 
   bandit:
     name: Bandit security scan
