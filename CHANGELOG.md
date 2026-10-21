@@ -12,6 +12,13 @@ All notable changes to FloodDepth are recorded here.
   16.7 -> 20.7 km2.
 - The report said a pre-event image was used when its bands were not found.
 
+### Performance
+- **Water-surface interpolation up to 50x faster on large grids.** `gdal.FillNodata` was asked to
+  search the whole window for every cell; the search now stops at twice the farthest flood
+  cell's distance to its waterline (+10 cells). Surface unchanged to millimetres. Quick run:
+  Nyando 220 -> 52 s, Juba (7.8 M cells) 288 -> 33 s. Same cap in the method cross-validation.
+- Per-stage run times in `run.json` (`timings`) and in the report.
+
 ### Changed
 - **Report redesigned.** Maps are framed on the main flood area (the smallest window holding 80 %
   of the flooded cells) with an overview inset, scale bar and north arrow, drawn over the

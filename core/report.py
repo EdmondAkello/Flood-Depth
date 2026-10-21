@@ -745,7 +745,14 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
                  + "".join(_row(a, b) for a, b in params) + "</table></details></td></tr>")
     h.append("</table></section><section class='card'><h2>Processing log</h2><ol>")
     h += [f"<li>{html.escape(x)}</li>" for x in info.get("steps", [])]
-    h.append("</ol></section></div>")
+    h.append("</ol>")
+    tm = info.get("timings")
+    if tm:
+        tot = sum(tm.values()) or 1.0
+        h.append("<h3>Time by stage</h3><table>" + "".join(
+            f"<tr><th>{html.escape(k)}</th><td>{_duration(v)} ({100 * v / tot:.0f} %)</td></tr>"
+            for k, v in tm.items()) + "</table>")
+    h.append("</section></div>")
     h.append("<section class='card'><details><summary><b>Limitations</b> - read before using the depths</summary><ul>")
     h += [f"<li>{html.escape(x)}</li>" for x in LIMITS]
     h.append("</ul></details></section></main></body></html>")

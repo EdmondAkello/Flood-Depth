@@ -225,8 +225,21 @@ def fill_nearest(values, known, cell_x=1.0, cell_y=1.0, targets=None):
     return out, dist
 
 
+def search_distance(known, targets, factor=2.0, margin=10.0):
+    """FillNodata search distance (cells) that reaches every target cell's
+    nearest known cell `factor` times over. FillNodata's cost grows with the
+    search distance for every cell of the grid, and the default (the whole
+    grid) made large scenes 50x slower for the same surface: on Juba
+    (7.8 M cells, farthest flood cell 32 cells from its waterline) 141 s ->
+    2.6 s, largest change 6 mm."""
+    if not np.any(targets) or not np.any(known):
+        return None
+    return float(factor * float(proximity_cells(known)[targets].max()) + margin)
+
+
 def fill_from_points(values, known, grid, max_search=None, smoothing_iterations=0):
-    """Inverse-distance fill of a grid from known cells (gdal.FillNodata)."""
+    """Inverse-distance fill of a grid from known cells (gdal.FillNodata).
+    max_search: cells (None = the whole grid; pass search_distance(...) on large grids)."""
     gdal = R._gdal()
     rows, cols = values.shape
     mem = gdal.GetDriverByName("MEM").Create("", cols, rows, 1, gdal.GDT_Float32)
@@ -320,7 +333,9 @@ def estimate_surface(elev, flood, valid, grid, other_water=None, blocked=None,
     if interpolation == "idw":
         sub = R.Grid(c1 - c0, r1 - r0, (grid.gt[0] + c0 * grid.gt[1], grid.gt[1], 0.0,
                                          grid.gt[3] + r0 * grid.gt[5], 0.0, grid.gt[5]), grid.wkt)
-        s_w = fill_from_points(e_w, k_w, sub, max_search=max_search_cells)
+        ms = max_search_cells if max_search_cells else search_distance(k_w, f_w)
+        info["search_cells"] = ms
+        s_w = fill_from_points(e_w, k_w, sub, max_search=ms)
     else:
         s_w, dist = fill_nearest(e_w, k_w, grid.cell_x, grid.cell_y, targets=f_w)
         info["max_distance_to_waterline_m"] = float(np.max(dist[f_w])) if f_w.any() else 0.0

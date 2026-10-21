@@ -97,6 +97,13 @@ def run_quick(opt, progress=None, log=print):
     info = {"version": VERSION, "started": time.strftime("%Y-%m-%d %H:%M:%S"), "options": _opt_dict(opt),
             "warnings": [], "steps": []}
     W = info["warnings"]
+    T = info["timings"] = {}
+    tmark = [time.time()]
+
+    def lap(name):
+        now = time.time()
+        T[name] = round(T.get(name, 0.0) + now - tmark[0], 1)
+        tmark[0] = now
 
     def say(msg):
         info["steps"].append(msg)
@@ -127,6 +134,7 @@ def run_quick(opt, progress=None, log=print):
                        tags={"FLOODDEPTH": VERSION, "VALUES": "1 flood water, 2 permanent water, 0 dry, 255 NoData",
                              "INDEX": cls["info"]["index"], "THRESHOLD": t["threshold"]})
         info["water_mask"] = mpath
+        lap("classification")
 
     # 2. analysis grid
     if cls is not None:
@@ -191,6 +199,7 @@ def run_quick(opt, progress=None, log=print):
         raise ValueError("No flood cells remain on the analysis grid (after masking, permanent-water removal "
                          "and connectivity). Check the inputs and the area of interest.")
     say(f"Flood extent: {int(flood.sum()):,} cells = {flood.sum() * grid.cell_area() / 1e6:.3f} km2.")
+    lap("analysis grid, DEM and masks")
 
     # 4. surface and depth
     hand = None
@@ -234,6 +243,7 @@ def run_quick(opt, progress=None, log=print):
         W.append(f"{100 * neg / flood.sum():.0f} % of flood cells lie above the estimated water surface "
                  "(depth set to 0): the extent includes high ground or the DEM is a surface model there.")
 
+    lap("water surface and depth")
     # 5. evidence classes and uncertainty
     slope = SF.slope_percent(dem, grid.cell_x, grid.cell_y)
     bare_g = None
@@ -281,6 +291,7 @@ def run_quick(opt, progress=None, log=print):
                 f"{usum['mean_depth_m_p10_p50_p90'][2]:.2f} m (P10-P90).")
         except ValueError as exc:
             W.append(f"Uncertainty ensemble not computed: {exc}")
+    lap("uncertainty ensemble")
     rows = []
     for code in sorted(set(np.unique(evid).tolist()) - {255}):
         sel = evid == code
@@ -336,6 +347,7 @@ def run_quick(opt, progress=None, log=print):
             outs[key] = pth
     info.update({"outputs": outs,
                  "polygons": npoly, "seconds": round(time.time() - t0, 1)})
+    lap("writing rasters and vectors")
     from .report import write_report
     rpath = os.path.join(opt.out_dir, "report.html")
     bd = None
@@ -345,6 +357,7 @@ def run_quick(opt, progress=None, log=print):
     write_report(rpath, info, depth=depth, flood=flood, dem=dem, grid=grid, valid=valid, other=other,
                  prob=None if unc is None else unc["prob"], backdrop=bd)
     info["outputs"]["report"] = rpath
+    lap("report")
     with open(os.path.join(opt.out_dir, "run.json"), "w", encoding="utf-8") as f:
         json.dump(_jsonable(info), f, indent=2)
     prog(1.0, "Done")
