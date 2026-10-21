@@ -237,6 +237,7 @@ including a 20-member ensemble.
 | 2 | trace — inundation | vegetation lost, still vegetated: water passed |
 | 3 | trace — erosion / deposition | bare soil or sediment after the event: scour, deposition; DEM outdated |
 | 4 | steep flow path | slope > 10 %: water flowed, did not pond |
+| 5 | doubtful — ground above the water surface | a mapped flood cell whose ground is above the estimated surface (depth 0): wet soil, crops or vegetation classed as water, a DSM artefact, or a surface too low there. Replaces classes 0–2 (not 3 or 4); pink on the report's depth map |
 | 0 | extent from polygons | the user's layer |
 
 ### 7.2 Monte Carlo ensemble
@@ -264,6 +265,11 @@ depth with:
   in [0.3, 0.7]; for polygons the edge is shifted by −1, 0 or +1 cell (±2 in
   trace mode). Connectivity to the reference features is re-applied.
 
+Members are independent (one random stream each, drawn from the seed up front)
+and run in a thread pool — GDAL, NumPy and SciPy release Python's lock in the
+heavy calls — so the result does not depend on the number of threads
+(CPU count − 1, at most 8; `FLOODDEPTH_THREADS` overrides).
+
 Outputs: `flood_probability.tif` (share of members flooded), `depth_p10.tif`,
 `depth_p50.tif`, `depth_p90.tif` (a dry member counts as 0 m) and the P10 / P50
 / P90 of area, mean depth and volume. Windows above 2 Mcells are computed on a
@@ -284,7 +290,31 @@ or the image timing.
 | `water_mask.tif` | classification on the image grid, palette |
 | `flood_extent.gpkg` | `flood_extent` polygons (area_m2), `waterline` points (used / dropped, z, surface) |
 | `report.html` | decisions, warnings, statistics, maps, limitations |
-| `run.json` | everything in the report, machine-readable |
+| `run.json` | everything in the report, machine-readable, incl. run time by stage (`timings`) |
+
+The report prints on A4 portrait (about four pages).
+
+### 8.1 Several dates (*Flood depth over time*)
+
+The image files of several dates are grouped by the acquisition date in their
+names (YYYY-MM-DD, YYYY_MM_DD or YYYYMMDD) and each date runs the quick
+workflow in its own sub-folder with the same DEM, permanent water, area of
+interest and settings. A date that fails (no water, refused threshold) is
+reported and skipped. The per-date grids share the DEM lattice, so they are
+combined without resampling on their union:
+
+| File | Content |
+|---|---|
+| `max_depth.tif` | deepest water seen at each cell on any mapped date (m) |
+| `dates_flooded.tif` | number of dates each cell was flooded |
+| `first_date_flooded.tif` | first date flooded (1 = first date; dates in the file tags) |
+| `series.csv`, `series.html` | area, depth, volume (with P10–P90), sensor / index and cloud per date; charts spaced by time; the maximum-depth map |
+
+Dates are comparable only when they cover the same ground (give an area of
+interest) and use the same kind of sensor: Sentinel-1 maps less of a shallow
+flood among crops than Sentinel-2, and a rendered 'False color' image allows
+NDWI only; the summary warns when the dates mix them. The maximum depth is the
+deepest water *seen*, not the peak, which may fall between overpasses.
 
 ## 9. Validation
 
@@ -506,10 +536,20 @@ file name does not name the product — set it when known).
   method. Vectors cross the boundary as WKT + CRS WKT, rasters as file paths.
 * No subprocess, no pip dependency: NumPy and the GDAL / OGR bindings shipped
   with QGIS. GDAL C++ routines used: Warp, FillNodata, ComputeProximity,
-  Polygonize, RasterizeLayer.
+  Polygonize, RasterizeLayer. FillNodata's search stops at twice the farthest
+  flood cell's distance to its waterline (+10 cells): its cost grows with the
+  search distance for every cell of the window.
+* **Optional SciPy** (`core/accel.py`): when SciPy is importable (most QGIS
+  installs ship it) connected components, box filters, the nearest-edge
+  transform and the FFT use `scipy.ndimage` / `scipy.fft`; otherwise the
+  NumPy / GDAL paths run. Both are tested against each other
+  (`tests/test_accel.py`) and CI runs every suite both ways
+  (`FLOODDEPTH_NO_SCIPY=1` forces the fallbacks). The report says which ran.
 * Algorithm ids of 0.3 are kept (`classify_inundation`,
   `estimate_stage_dem_boundary`, `compute_flood_depth`,
   `compute_constant_stage_depth`).
+* Copernicus Browser 'Raw' Sentinel-1 in UINT16 is linear backscatter × 65535
+  and is read as such (it was read as dB before 0.4.2 and no water was found).
 * Tests: `tools/dev/ci_pure.sh` (pure suites), `tests/qgis_smoke.py` (every tool
   through Processing on a synthetic site with a known answer). Benchmarks
   (`benchmarks/`) are in the repository but not in the plugin zip.

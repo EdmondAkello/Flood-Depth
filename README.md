@@ -35,19 +35,24 @@ Select the image files you downloaded, select a DEM, click Run:
 6. **Quantifies uncertainty** with a Monte Carlo ensemble (spatially
    correlated DEM error, threshold band, edge shifts, extra terrain error where
    the ground was eroded): **depth P10 / P50 / P90** and **flood probability**,
-   plus an **evidence layer** saying what each flooded cell is based on.
-7. Writes an **HTML report** with every automatic decision, statistics,
-   warnings and limitations.
+   plus an **evidence layer** saying what each flooded cell is based on, including mapped cells whose
+   ground lies above the estimated water surface (*doubtful*: wet soil or crops classed as water).
+7. Writes an **HTML report** (prints on A4) with maps over the satellite image, every automatic
+   decision, statistics, warnings, limitations and the run time by stage.
+8. **Several dates**: maps each overpass and combines them (maximum observed depth, dates flooded).
 
 Every computation uses NumPy and the GDAL bindings QGIS ships. Nothing is
 installed with pip and no external process is started, so it runs on managed
-workstations where SAGA / GRASS / WhiteboxTools calls are blocked.
+workstations where SAGA / GRASS / WhiteboxTools calls are blocked. When SciPy is
+available (most QGIS installs) a few kernels use it, and the uncertainty ensemble
+runs on several cores; without it the NumPy / GDAL paths give the same results.
 
 ## Tools (Processing Toolbox → FloodDepth)
 
 | Tool | Use |
 |---|---|
 | **Quick flood depth (image or extent + DEM)** | The one-click workflow: classification → extent → water surface → depth → uncertainty → report, in a fixed output folder |
+| **Flood depth over time (several image dates)** | Quick flood depth per image date, then the maximum observed depth, dates flooded, and area / depth / volume over time (series.html, series.csv) |
 | 1. Classify water from imagery (automatic) | Water mask + polygons from image files (water or flood-trace mode) |
 | 1b. Classify water from training polygons | RGB, drone or aerial images; scenes where indices fail |
 | 2. Water surface and depth from a flood extent | Polygons or a mask raster + DEM (or HAND) → WSE and depth rasters |
@@ -96,9 +101,10 @@ The core is importable without QGIS:
     python -m flooddepth.tests.test_surface     # analytic surfaces with known depths
     python -m flooddepth.tests.test_pipeline    # the whole workflow on a synthetic site
 
-`tools/dev/ci_pure.sh` runs the 7 pure suites (124 checks); `tools/dev/run_tests.sh` adds the
-QGIS smoke test (`tests/qgis_smoke.py`, 32 checks: every tool through real Processing).
-GitHub Actions runs the pure suites and a Bandit scan on every push.
+`tools/dev/ci_pure.sh` runs the 9 pure suites (161 checks with SciPy, 147 with the NumPy / GDAL
+fallbacks); `tools/dev/run_tests.sh` adds the QGIS smoke test (`tests/qgis_smoke.py`, 39 checks:
+every tool through real Processing).
+GitHub Actions runs the pure suites with and without SciPy, and a Bandit scan, on every push.
 
 ## Validation (summary)
 

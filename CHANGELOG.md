@@ -4,7 +4,29 @@ All notable changes to FloodDepth are recorded here.
 
 ## [Unreleased]
 
+### Added
+- **Flood depth over time (several image dates)**: a new tool. Image files of several dates are
+  grouped by the date in their names; each date runs Quick flood depth in its own folder with the
+  same DEM and settings, then `max_depth.tif` (deepest water seen on any date), `dates_flooded.tif`,
+  `first_date_flooded.tif`, `series.csv` and `series.html` (area, depth and volume over time with
+  P10-P90, charts spaced by time, the maximum-depth map). Failed dates are reported and skipped;
+  dates mixing sensors / indices are flagged. Nyando 30 Apr - 6 May 2024 (S2 False color, S2 Raw,
+  S1 Raw): 3 dates in 48 s.
+- **Evidence class 5, "doubtful - ground above the water surface"**: mapped flood cells whose
+  ground lies above the estimated surface (depth 0; wet soil, crops, vegetation or DSM artefacts),
+  in `evidence.tif` and in pink on the report's depth map.
+- **Optional SciPy acceleration** (`core/accel.py`): connected components, box filters, the
+  nearest-edge transform and the FFT use SciPy when it is importable; the NumPy / GDAL paths are
+  kept and tested against it, and CI runs every suite both ways (`FLOODDEPTH_NO_SCIPY=1`).
+- **Uncertainty members run in parallel threads** (CPU count - 1, at most 8; `FLOODDEPTH_THREADS`).
+  Each member has its own random stream, so results do not depend on the thread count. Correlated
+  DEM noise uses FFT-friendly sizes. Nyando quick run 52 -> 24 s on 2 cores.
+- Note when the pre-event image is a rendered colour composite (the Raw bands give a cleaner
+  permanent-water mask).
+
 ### Fixed
+- **Copernicus Browser Sentinel-1 'Raw' in UINT16** (linear backscatter x 65535) was read as dB,
+  so every pixel looked bright and no water was found (Nyando 6 May 2024). Now scaled to linear.
 - **Bright-cloud test scaled band by band.** In a Copernicus Browser uint16 export (reflectance
   x 65535) a dark blue band (dry soil) sits below 12000 and was read as x 10000, 6.5 times too
   bright, so clear land was masked as cloud. The scale is now decided once per scene from the
