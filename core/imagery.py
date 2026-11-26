@@ -47,17 +47,30 @@ def scene_from_paths(paths, overrides=None):
 
 
 def _ref_grid(scene, roles):
+    """The grid of the first available role's file, cut to `scene.crop`
+    (bounds, wkt) when an area of interest was given."""
+    p = None
     for r in roles:
         if r in scene.sources:
-            p, b = scene.sources[r]
-            return R.grid_of(p)
-    p, b = next(iter(scene.sources.values()))
-    return R.grid_of(p)
+            p = scene.sources[r][0]
+            break
+    if p is None:
+        p = next(iter(scene.sources.values()))[0]
+    g = R.grid_of(p)
+    crop = getattr(scene, "crop", None)
+    return R.crop_grid(g, crop[0], crop[1]) if crop else g
+
+
+def set_crop(scene, bounds, wkt):
+    """Read only the part of the image inside `bounds` (any CRS)."""
+    if scene is not None and bounds is not None:
+        scene.crop = (tuple(bounds), wkt)
+    return scene
 
 
 def read_role(scene, role, grid, notes):
     p, b = scene.sources[role]
-    a, g, nt = R.read_band(p, b)
+    a, g, nt = R.read_band(p, b, bounds=grid.bounds, bounds_wkt=grid.wkt)
     for t in nt:
         if t not in notes:
             notes.append(f"{os.path.basename(p)}: {t}")
@@ -84,7 +97,8 @@ def decide_offset(scene, notes):
         if role not in scene.sources:
             continue
         p, b = scene.sources[role]
-        a, _, _ = R.read_band(p, b)
+        crop = getattr(scene, "crop", None)
+        a, _, _ = R.read_band(p, b, bounds=crop[0] if crop else None, bounds_wkt=crop[1] if crop else None)
         v = a[np.isfinite(a) & (a > 0)]
         if v.size == 0:
             return
@@ -236,7 +250,8 @@ def ndvi(scene, grid, notes):
 
 def classify_image(paths, overrides=None, index="auto", threshold=None, method="edge",
                    min_water_cells=0, max_hole_cells=0, cloud_threshold=0.25,
-                   pre_paths=None, pre_overrides=None, mode="water", cloud_buffer=2, progress=None):
+                   pre_paths=None, pre_overrides=None, mode="water", cloud_buffer=2, progress=None,
+                   crop=None):
     """Classify water (or flood trace) from image files.
 
     Returns dict: water, valid, grid, permanent (or None), cloud (or None),
@@ -250,6 +265,8 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
     info = {"mode": mode}
     step(0.02, "Identifying bands")
     scene = scene_from_paths(paths, overrides)
+    if crop:
+        set_crop(scene, *crop)
     info.update({"scene_kind": scene.kind, "sensor": scene.family or "unknown", "date": scene.date,
                  "bands": scene.describe(), "files": [os.path.basename(p) for p in paths]})
     notes.extend(scene.notes)
@@ -258,6 +275,8 @@ def classify_image(paths, overrides=None, index="auto", threshold=None, method="
     pre = None
     if pre_paths:
         pre = scene_from_paths(pre_paths, pre_overrides)
+        if crop:
+            set_crop(pre, *crop)
         info["pre_bands"] = pre.describe()
         info["pre_date"] = pre.date
         notes.extend("pre-event: " + n for n in pre.notes)

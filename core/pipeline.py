@@ -28,12 +28,13 @@ from dataclasses import dataclass, field, asdict
 import numpy as np
 
 from . import raster as R
-from . import imagery as I
+from . import imagery as IMG
 from . import classify as C
 from . import surface as SF
 from . import stats as ST
 from . import vector as V
 from . import uncertainty as U
+from . import dem as DM
 
 VERSION = "0.4.1"
 
@@ -42,6 +43,7 @@ VERSION = "0.4.1"
 class QuickOptions:
     dem_path: str
     out_dir: str
+    dem_tiles: list = field(default_factory=list)       # more DEM tiles, mosaicked with dem_path
     image_paths: list = field(default_factory=list)
     pre_paths: list = field(default_factory=list)
     mode: str = "water"                 # water | trace
@@ -82,6 +84,7 @@ class QuickOptions:
     dem_corr_m: float = 150.0
     erosion_sigma: float = 1.0
     seed: int = 42
+    map_style: dict = field(default_factory=dict)     # report map colours (report.MapStyle keys)
 
 
 def _progress(cb, lo, hi):
@@ -118,10 +121,13 @@ def run_quick(opt, progress=None, log=print):
     # 1. classification on the image's own grid
     cls = None
     if opt.image_paths:
-        cls = I.classify_image(opt.image_paths, opt.band_overrides, opt.index, opt.threshold,
-                               opt.threshold_method, opt.min_water_cells, opt.max_hole_cells,
-                               opt.cloud_threshold, opt.pre_paths or None, None, opt.mode,
-                               progress=_progress(progress, 0.0, 0.35))
+        crop = image_crop(opt)
+        if crop:
+            say("Image read only around the area of interest (the AOI plus half its size on each side).")
+        cls = IMG.classify_image(opt.image_paths, opt.band_overrides, opt.index, opt.threshold,
+                                 opt.threshold_method, opt.min_water_cells, opt.max_hole_cells,
+                                 opt.cloud_threshold, opt.pre_paths or None, None, opt.mode,
+                                 progress=_progress(progress, 0.0, 0.35), crop=crop)
         info["classification"] = cls["info"]
         W.extend(cls["info"].get("notes", []))
         t = cls["info"]["threshold"]
@@ -129,8 +135,8 @@ def run_quick(opt, progress=None, log=print):
             + (f" (eta {t['eta']:.2f}, {cls['info'].get('confidence')})" if t.get("eta") is not None else "")
             + f"; water {100 * cls['info']['water_share']:.2f} % of valid pixels.")
         mpath = os.path.join(opt.out_dir, "water_mask.tif")
-        R.write_raster(mpath, I.mask_raster_values(cls["water"], cls["valid"], cls["permanent"]), cls["grid"],
-                       nodata=255, dtype="Byte", color_table=I.MASK_COLORS,
+        R.write_raster(mpath, IMG.mask_raster_values(cls["water"], cls["valid"], cls["permanent"]), cls["grid"],
+                       nodata=255, dtype="Byte", color_table=IMG.MASK_COLORS,
                        tags={"FLOODDEPTH": VERSION, "VALUES": "1 flood water, 2 permanent water, 0 dry, 255 NoData",
                              "INDEX": cls["info"]["index"], "THRESHOLD": t["threshold"]})
         info["water_mask"] = mpath
@@ -147,17 +153,26 @@ def run_quick(opt, progress=None, log=print):
         ext = R.intersect(ext, ab)
         if ext is None:
             raise ValueError("The area of interest does not overlap the image / flood extent.")
-    grid, gnotes = R.analysis_grid(opt.dem_path, ext, ext_wkt, opt.cell, opt.max_cells)
+    dem_src, dem_notes = DM.dem_source([opt.dem_path] + list(opt.dem_tiles or []), ext, ext_wkt)
+    for n in dem_notes:
+        say(n)
+    grid, gnotes = R.analysis_grid(dem_src, ext, ext_wkt, opt.cell, opt.max_cells)
     for n in gnotes:
         say(n)
     info["grid"] = {"cols": grid.cols, "rows": grid.rows, "cell_x": grid.cell_x, "cell_y": grid.cell_y,
                     "crs": R.srs_from_wkt(grid.wkt).GetName()}
     if R.is_geographic(grid.wkt):
         raise ValueError("Internal error: the analysis grid is geographic.")
+    need, mwarn = DM.memory_check(grid.cols * grid.rows)
+    info["memory_estimate_gb"] = round(need, 2)
+    if mwarn:
+        W.append(mwarn)
     prog = _progress(progress, 0.35, 0.95)
     prog(0.0, "Reading the DEM")
-    dem, dnotes = R.read_on_grid(opt.dem_path, grid, 1, "bilinear", zero_nodata_auto=True)
+    dem, dnotes = R.read_on_grid(dem_src, grid, 1, "bilinear", zero_nodata_auto=True)
     W.extend("DEM: " + n for n in dnotes)
+    dwarn, info["dem_audit"] = DM.audit(dem)
+    W.extend("DEM: " + n for n in dwarn)
     valid = np.isfinite(dem)
     if valid.mean() < 0.5:
         W.append(f"The DEM covers only {100 * valid.mean():.0f} % of the analysis area.")
@@ -354,13 +369,14 @@ def run_quick(opt, progress=None, log=print):
     lap("writing rasters and vectors")
     from .report import write_report
     rpath = os.path.join(opt.out_dir, "report.html")
-    bd = None
     if cls is not None and cls.get("scene") is not None:
         def bd(g, _sc=cls["scene"]):
-            return I.backdrop(_sc, g)
+            return IMG.backdrop(_sc, g)
+    else:
+        bd = None
     write_report(rpath, info, depth=depth, flood=flood, dem=dem, grid=grid, valid=valid, other=other,
                  doubtful=evid == 5,
-                 prob=None if unc is None else unc["prob"], backdrop=bd)
+                 prob=None if unc is None else unc["prob"], backdrop=bd, style=opt.map_style)
     info["outputs"]["report"] = rpath
     lap("report")
     with open(os.path.join(opt.out_dir, "run.json"), "w", encoding="utf-8") as f:
@@ -396,6 +412,15 @@ def permanent_from_raster(arr, rule="auto"):
         return fin & (a >= t), f"value >= {t:g}"
     codes = [float(x) for x in rule.replace(";", ",").split(",") if x.strip()]
     return fin & np.isin(a, codes), "values " + ", ".join(f"{c:g}" for c in codes)
+
+
+def image_crop(opt):
+    """(bounds, crs wkt) to cut the image to: the area of interest padded by
+    half its size on each side (context for the automatic threshold), or
+    None to read the whole image."""
+    if not opt.aoi_wkts:
+        return None
+    return _wkts_bounds(opt.aoi_wkts, opt.aoi_crs, pad_frac=0.5)
 
 
 def _wkts_bounds(wkts, crs, pad_frac=0.0):

@@ -185,7 +185,8 @@ def run_series(opt, progress=None, log=print):
 
     # summary table
     cpath = os.path.join(opt.out_dir, "series.csv")
-    cols = ["date", "status", "files", "sensor", "index", "area_km2", "area_p10_km2", "area_p90_km2", "mean_depth_m", "interior_mean_m",
+    cols = ["date", "status", "files", "sensor", "index", "area_km2", "area_p10_km2", "area_p90_km2", "mean_depth_m",
+            "interior_mean_m",
             "p90_depth_m", "max_depth_m", "volume_m3", "volume_p10_m3", "volume_p90_m3", "cloud_share",
             "separability", "warnings", "seconds"]
     with open(cpath, "w", newline="", encoding="utf-8") as fh:
@@ -197,7 +198,9 @@ def run_series(opt, progress=None, log=print):
 
     # summary page
     hpath = os.path.join(opt.out_dir, "series.html")
-    dem, _ = R.read_on_grid(opt.dem_path, ug, 1, "bilinear", zero_nodata_auto=True)
+    from .dem import dem_source
+    dsrc, _ = dem_source([opt.dem_path] + list(getattr(opt, "dem_tiles", None) or []), ug.bounds, ug.wkt)
+    dem, _ = R.read_on_grid(dsrc, ug, 1, "bilinear", zero_nodata_auto=True)
     _write_html(hpath, rows, runs, env, maxd, count, dem, ug, opt, VERSION, round(time.time() - t0, 1))
     if progress:
         progress(1.0, "Done")
@@ -217,27 +220,25 @@ def _write_html(path, rows, runs, env, maxd, count, dem, grid, opt, version, sec
     ok = [r for r in rows if r["status"] == "ok"]
     dates = [r["date"] for r in ok]
     chart_a = _line_svg(dates, [("area", [r["area_km2"] for r in ok], [r.get("area_p10_km2") for r in ok],
-                                 [r.get("area_p90_km2") for r in ok], "#2171b5")], "km²", "Flooded area")
+                                 [r.get("area_p90_km2") for r in ok], "#4a45a6")], "km²", "Flooded area")
     chart_v = _line_svg(dates, [("volume", [(r["volume_m3"] or 0) / 1e6 for r in ok],
                                  [(r["volume_p10_m3"] or 0) / 1e6 if r.get("volume_p10_m3") is not None else None
                                   for r in ok],
                                  [(r["volume_p90_m3"] or 0) / 1e6 if r.get("volume_p90_m3") is not None else None
-                                  for r in ok], "#08519c")], "Mm³", "Flood volume")
-    chart_d = _line_svg(dates, [("interior", [r["interior_mean_m"] for r in ok], None, None, "#6baed6"),
-                                ("p90", [r["p90_depth_m"] for r in ok], None, None, "#08306b")], "m",
+                                  for r in ok], "#1f8f80")], "Mm³", "Flood volume")
+    chart_d = _line_svg(dates, [("interior", [r["interior_mean_m"] for r in ok], None, None, "#9b97d6"),
+                                ("p90", [r["p90_depth_m"] for r in ok], None, None, "#2b2766")], "m",
                         "Mean depth, interior (light) and 90th percentile (dark)")
-    h = ["<!doctype html><html lang='en'><head><meta charset='utf-8'>",
-         "<meta name='viewport' content='width=device-width,initial-scale=1'>",
-         "<title>FloodDepth time series</title><style>", RP.CSS, "</style></head><body>",
-         "<header><div class='wrap'><h1>Flood depth over time</h1>",
-         f"<p class='meta'><b>{len(ok)}</b> of {len(rows)} image date(s) mapped · {html.escape(dates[0])} to "
-         f"{html.escape(dates[-1])} · {RP._duration(seconds)} · FloodDepth {html.escape(version)}</p>",
-         "<div class='kpis'>",
+    from . import style as ST
+    facts = [("Dates mapped", f"{len(ok)} of {len(rows)}"), ("Period", f"{dates[0]} to {dates[-1]}"),
+             ("Duration", RP._duration(seconds)), ("Version", f"FloodDepth {version}")]
+    h = [ST.head("FloodDepth - flood depth over time"), ST.band("Flood depth over time", facts),
+         "<main class='wrap'>", ST.PRINT_HINT, "<div class='kpis'>",
          f"<div class='kpi'><b>{env['area_km2']:,.2f} km²</b><span>Flooded on any date</span></div>",
          f"<div class='kpi'><b>{env['flooded_every_date_km2']:,.2f} km²</b><span>Flooded on every mapped date</span></div>",
          f"<div class='kpi'><b>{_f(env['mean_depth_m'])} m</b><span>Mean of the maximum depth</span></div>",
          f"<div class='kpi'><b>{env['volume_m3'] / 1e6:,.2f} Mm³</b><span>Volume of the maximum depth</span></div>",
-         "</div></div></header><main class='wrap'>"]
+         "</div>"]
     warn = [f"{r['date']}: {r['status']}" for r in rows if r["status"] != "ok"]
     kinds = sorted({f"{r.get('sensor') or '?'} / {r.get('index') or '?'}" for r in ok})
     if len(kinds) > 1:
@@ -253,15 +254,16 @@ def _write_html(path, rows, runs, env, maxd, count, dem, grid, opt, version, sec
              + "<p class='sub'>Bars: P10-P90 of the uncertainty ensemble for that date. Dates are only comparable "
                "when they cover the same ground: give an area of interest, and watch the cloud share.</p></section></div>")
     try:
-        m = RP.maps(maxd, np.isfinite(maxd), dem, grid, valid=np.isfinite(dem))
+        st = RP.MapStyle.from_dict(getattr(opt, "map_style", None))
+        m = RP.maps(maxd, np.isfinite(maxd), dem, grid, valid=np.isfinite(dem), style=st)
         h.append("<section class='card mapcard'><h2>Maximum observed depth</h2><div class='maps'><figure>"
-                 + m["depth"] + RP._gradient_legend(RP.DEPTH_RAMP, "m", "Maximum depth over the dates (m)", "m")
+                 + m["depth"] + RP._gradient_legend(st.depth_stops(), "m", "Maximum depth over the dates (m)", "m")
                  + "<p class='sub'>The deepest water seen at each cell on any mapped date (max_depth.tif). "
                    "dates_flooded.tif counts the dates each cell was flooded; first_date_flooded.tif gives the "
                    "first one.</p></figure></div></section>")
     except Exception as exc:  # the summary must not fail the run
         h.append(f"<section class='card'><p class='sub'>Map not drawn: {html.escape(str(exc))}</p></section>")
-    h.append("<section class='card pg'><h2>By date</h2><table><tr><th>Date</th><td><b>Sensor / index</b></td>"
+    h.append("<section class='card pg'><h2>By date</h2><table class='grid'><tr><th>Date</th><td><b>Sensor / index</b></td>"
              "<td><b>Area km²</b></td>"
              "<td><b>P10-P90 km²</b></td><td><b>Mean / interior m</b></td><td><b>P90 m</b></td>"
              "<td><b>Volume Mm³</b></td><td><b>Cloud</b></td><td><b>Report</b></td></tr>")
@@ -284,6 +286,9 @@ def _write_html(path, rows, runs, env, maxd, count, dem, grid, opt, version, sec
              "dates; an area of interest keeps the compared ground the same.</li><li>The maximum depth is the deepest "
              "water seen on the mapped dates, not the flood peak, which may fall between overpasses.</li>"
              + "".join(f"<li>{html.escape(x)}</li>" for x in RP.LIMITS[:3]) + "</ul></details></section>")
-    h.append("</main></body></html>")
+    h.append("</main>" + ST.foot(version, time.strftime("%Y-%m-%d")) + "</body></html>")
+    text = "\n".join(h)
+    i = text.find("<main")
+    text = text[:i] + ST.number_sections(text[i:]) if i >= 0 else text
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(h))
+        fh.write(text)

@@ -64,6 +64,7 @@ DEM_PRESETS = (  # (key, label, sigma m, file-name patterns)
     ("fabdem", "FABDEM bare-earth 30 m (1.5 m)", 1.5, ("fabdem",)),
     ("copernicus", "Copernicus GLO-30 DSM (2.0 m)", 2.0, ("copernicus", "glo30", "glo-30", "cop30", "cop-dem")),
     ("tandemx", "TanDEM-X 30 m (2.0 m)", 2.0, ("tandem", "tdx")),
+    ("gem15", "Google GEM 15 m DTM (2.0 m)", 2.0, ("gem15", "gem_15", "gem-15", "google_gem", "googlegem")),
     ("alos", "ALOS AW3D30 DSM (2.5 m)", 2.5, ("alos", "aw3d")),
     ("srtm", "SRTM 30 m (4.0 m)", 4.0, ("srtm", "nasadem")),
 )

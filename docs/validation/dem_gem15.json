@@ -1,0 +1,178 @@
+{
+ "nyando": {
+  "grid_30m": "743 x 739",
+  "grid_15m": "1486 x 1476",
+  "offset_to_fabdem": {
+   "alos": {
+    "mean_m": 2.93,
+    "sd_m": 0.9
+   },
+   "tandemx": {
+    "mean_m": -17.49,
+    "sd_m": 0.59
+   },
+   "gem15": {
+    "mean_m": 3.17,
+    "sd_m": 1.27
+   }
+  },
+  "truth_on_fabdem": [
+   {
+    "scenario": "valley trend, 10 % flooded",
+    "true_mean_m": 3.88,
+    "alos": {
+     "cells": 27469,
+     "bias_m": 0.457,
+     "mae_m": 1.225,
+     "rmse_m": 1.637,
+     "corr": 0.932
+    },
+    "tandemx": {
+     "cells": 27469,
+     "bias_m": 0.616,
+     "mae_m": 1.235,
+     "rmse_m": 1.637,
+     "corr": 0.936
+    },
+    "gem15": {
+     "cells": 27167,
+     "bias_m": 0.377,
+     "mae_m": 1.225,
+     "rmse_m": 1.654,
+     "corr": 0.927
+    }
+   },
+   {
+    "scenario": "valley trend, 25 % flooded",
+    "true_mean_m": 2.84,
+    "alos": {
+     "cells": 70965,
+     "bias_m": 0.763,
+     "mae_m": 1.212,
+     "rmse_m": 1.89,
+     "corr": 0.897
+    },
+    "tandemx": {
+     "cells": 70965,
+     "bias_m": 0.948,
+     "mae_m": 1.267,
+     "rmse_m": 1.932,
+     "corr": 0.903
+    },
+    "gem15": {
+     "cells": 59448,
+     "bias_m": 0.821,
+     "mae_m": 1.359,
+     "rmse_m": 2.052,
+     "corr": 0.888
+    }
+   }
+  ],
+  "gem15_own_grid": {
+   "10 % flooded": {
+    "cells": 95739,
+    "bias_m": -0.195,
+    "mae_m": 0.651,
+    "rmse_m": 1.029,
+    "corr": 0.974,
+    "seconds": 0.48
+   },
+   "25 % flooded": {
+    "cells": 196315,
+    "bias_m": 0.244,
+    "mae_m": 0.785,
+    "rmse_m": 1.265,
+    "corr": 0.955,
+    "seconds": 0.82
+   }
+  }
+ },
+ "maimahiu": {
+  "grid_30m": "484 x 443",
+  "grid_15m": "966 x 886",
+  "offset_to_fabdem": {
+   "alos": {
+    "mean_m": 6.35,
+    "sd_m": 4.64
+   },
+   "tandemx": {
+    "mean_m": -11.67,
+    "sd_m": 4.45
+   },
+   "gem15": {
+    "mean_m": 2.81,
+    "sd_m": 3.8
+   }
+  },
+  "truth_on_fabdem": [
+   {
+    "scenario": "valley trend, 10 % flooded",
+    "true_mean_m": 20.7,
+    "alos": {
+     "cells": 7533,
+     "bias_m": 0.894,
+     "mae_m": 4.08,
+     "rmse_m": 5.81,
+     "corr": 0.962
+    },
+    "tandemx": {
+     "cells": 7533,
+     "bias_m": 0.802,
+     "mae_m": 3.919,
+     "rmse_m": 5.599,
+     "corr": 0.964
+    },
+    "gem15": {
+     "cells": 7533,
+     "bias_m": -0.156,
+     "mae_m": 3.788,
+     "rmse_m": 5.248,
+     "corr": 0.962
+    }
+   },
+   {
+    "scenario": "valley trend, 25 % flooded",
+    "true_mean_m": 22.4,
+    "alos": {
+     "cells": 28651,
+     "bias_m": 1.056,
+     "mae_m": 6.013,
+     "rmse_m": 8.158,
+     "corr": 0.932
+    },
+    "tandemx": {
+     "cells": 28651,
+     "bias_m": 0.92,
+     "mae_m": 5.84,
+     "rmse_m": 7.941,
+     "corr": 0.934
+    },
+    "gem15": {
+     "cells": 28644,
+     "bias_m": 0.141,
+     "mae_m": 5.561,
+     "rmse_m": 7.476,
+     "corr": 0.935
+    }
+   }
+  ],
+  "gem15_own_grid": {
+   "10 % flooded": {
+    "cells": 29721,
+    "bias_m": 2.123,
+    "mae_m": 3.883,
+    "rmse_m": 5.535,
+    "corr": 0.978,
+    "seconds": 0.19
+   },
+   "25 % flooded": {
+    "cells": 105203,
+    "bias_m": 2.442,
+    "mae_m": 5.567,
+    "rmse_m": 7.842,
+    "corr": 0.95,
+    "seconds": 0.32
+   }
+  }
+ }
+}

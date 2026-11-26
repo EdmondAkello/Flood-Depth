@@ -33,7 +33,9 @@ def main():
     dem = S.write_dem(os.path.join(d, "dem_fabdem.tif"))
     post = S.write_s2_raw(os.path.join(d, "post"), "2024-05-05", True)
     pre = S.write_s2_raw(os.path.join(d, "pre"), "2024-04-07", False, seed=2)
-    q = lambda **k: run_quick(QuickOptions(dem_path=dem, **k), log=None)
+
+    def q(**k):
+        return run_quick(QuickOptions(dem_path=dem, **k), log=None)
 
     print("\n1. Image -> depth, lake removed with the pre-event image")
     info = q(image_paths=post, pre_paths=pre, out_dir=os.path.join(d, "a"), uncertainty_members=8)
@@ -46,6 +48,18 @@ def main():
         js = json.load(f)
     check("run.json is valid JSON with the threshold", "threshold" in js["classification"])
     check("evidence: observed water", any(r["code"] == 1 for r in info["evidence"]))
+
+    print("\n1a. Area of interest: only the image around it is read")
+    aoi = (f"POLYGON(({S.X0 + 1500} {S.Y1 - 6000}, {S.X0 + 7500} {S.Y1 - 6000}, {S.X0 + 7500} {S.Y1 - 3000}, "
+           f"{S.X0 + 1500} {S.Y1 - 3000}, {S.X0 + 1500} {S.Y1 - 6000}))")
+    ia = q(image_paths=post, pre_paths=pre, out_dir=os.path.join(d, "aoi"), uncertainty_members=0,
+           aoi_wkts=[aoi], aoi_crs=S.utm_wkt())
+    check("image cropped around the AOI", any("read only around the area of interest" in x for x in ia["steps"]))
+    ea, na, _, _ = depth_error(ia["outputs"]["depth"])
+    check("AOI run: depth MAE < 0.15 m", na > 50 and np.abs(ea).mean() < 0.15, f"MAE {np.abs(ea).mean():.3f} m, {na} cells")
+    check("AOI run: grid limited to the AOI", ia["grid"]["rows"] * ia["grid"]["cols"] < 0.5 * 300 * 300,
+          f"{ia['grid']['cols']} x {ia['grid']['rows']}")
+    check("DEM audit recorded", "repeated_row_share" in ia.get("dem_audit", {}))
 
     print("\n1b. Pre-event image without SWIR1 (Browser 'False color' case): NDWI fallback")
     pre_noswir = [p for p in pre if "B11" not in os.path.basename(p) and "B12" not in os.path.basename(p)]
