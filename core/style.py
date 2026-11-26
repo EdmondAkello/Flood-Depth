@@ -85,7 +85,7 @@ a{color:var(--indigo)}
   body{font-size:9.6pt;margin:0;max-width:none;padding:0;box-shadow:none;border-radius:0}
   .band{border-radius:0;padding:10px 14px 8px}.band h1{font-size:17pt}.wrap{padding:0 2px}.foot{margin:18px 2px 0}
   h2{font-size:12.5pt}h3{font-size:10.5pt;margin:10px 0 4px}h2,h3{break-after:avoid-page}
-  .print-hint,.toc{display:none}
+  .print-hint,.toc,.noprint{display:none}
   .kpis{grid-template-columns:repeat(3,1fr);gap:6px}.kpi{padding:5px 8px}.kpi b{font-size:12pt}
   .kpi span,.kpi small{font-size:7.5pt}
   .card,.cols>.card{margin-top:4mm}.cols{grid-template-columns:1fr 1fr;gap:2mm 5mm}

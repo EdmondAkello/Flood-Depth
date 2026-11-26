@@ -127,7 +127,7 @@ def main(in_qgis=False):
     QgsApplication.processingRegistry().addProvider(prov)
     ids = sorted(a.id() for a in prov.algorithms())
     print("\n1. Provider")
-    check("9 algorithms registered", len(ids) == 9, ", ".join(ids))
+    check("10 algorithms registered", len(ids) == 10, ", ".join(ids))
     for old in ("flooddepth:classify_inundation", "flooddepth:compute_flood_depth",
                 "flooddepth:compute_constant_stage_depth", "flooddepth:estimate_stage_dem_boundary"):
         check(f"0.3 id kept: {old}", old in ids)
@@ -270,6 +270,20 @@ def main(in_qgis=False):
     same = t_a.shape == q_a.shape and np.allclose(t_a, q_a, equal_nan=True, atol=1e-4)
     check("DEM given as two tiles gives the same depth as the whole DEM", same,
           f"mean {np.nanmean(t_a):.3f} vs {np.nanmean(q_a):.3f} m")
+
+    print("\n10b. 3D scene")
+    check("Quick flood depth writes the 3D scene", bool(r11.get("SCENE3D")) and os.path.exists(r11["SCENE3D"]))
+    r12 = processing.run("flooddepth:scene3d", {"RUN_DIR": os.path.join(tmp, "tiles"), "LINES": [ext], "DETAIL": 100,
+                                                "VE": 2.0, "OUTPUT": os.path.join(tmp, "scene_b.html")})
+    with open(r12["OUTPUT"], encoding="utf-8") as fh:
+        page = fh.read()
+    import json as _json
+    import re as _re
+    data = _json.loads(_re.search(r'<script id="scene-data" type="application/json">(.*?)</script>', page, _re.S).group(1))
+    names = {ln["name"] for ln in data["lines"]}
+    check("Export 3D scene adds the layers, terrain and water", len(names - {"Flood edge"}) >= 1 and
+          {s_["id"] for s_ in data["surfaces"]} >= {"terrain", "water"}, ", ".join(sorted(names)))
+    check("the 3D viewer loads nothing from the network", "<script src" not in page and "https://cdn" not in page)
 
     print("\n11. Plugin shell: Raster menu, toolbar button, unload")
     _shell_checks(prov)

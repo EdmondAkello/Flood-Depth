@@ -40,6 +40,8 @@ class FloodSeriesAlgorithm(QuickFloodDepthAlgorithm):
         super().initAlgorithm(config)
         self.parameterDefinition("IMAGES").setDescription("Satellite image files of all dates (post-event)")
         self.parameterDefinition("MEMBERS").setDefaultValue(10)
+        self.parameterDefinition("SCENE3D").setDescription("Interactive 3D scene for every date (scene3d.html)")
+        self.parameterDefinition("SCENE3D").setDefaultValue(False)
         self.removeParameter("EXTENT")
         self.addOutput(QgsProcessingOutputRasterLayer("MAX_DEPTH", "Maximum observed depth"))
         self.addOutput(QgsProcessingOutputFile("SUMMARY", "Series summary (HTML)"))

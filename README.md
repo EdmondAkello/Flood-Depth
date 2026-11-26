@@ -27,6 +27,10 @@ No external programs and no pip installs: it uses NumPy and the GDAL bindings th
   says what each flooded cell is based on.
 - **Writes an HTML report** that prints to A4 PDF: maps over the satellite image, every automatic
   decision, warnings and limitations.
+- **Builds an interactive 3D scene** (one offline HTML file): the terrain draped with the image, the
+  water coloured by depth, and the mud and debris a flash flood leaves behind.
+- **Gives you layers to work with**: depth, water-surface, evidence and probability GeoTIFFs and valid
+  flood polygons in a GeoPackage, ready for zonal statistics, depth-class polygons, KML or DXF.
 - **Handles national DEMs.** FABDEM, Copernicus GLO-30, ALOS, TanDEM-X, the **Google GEM 15 m DTM**
   or LiDAR, as one file or as tiles. Only the cells under the area are read.
 - **Several dates**: depth per date, the maximum observed depth and the dates each cell flooded.
@@ -42,7 +46,7 @@ without it.
 
 | Place | What is there |
 |---|---|
-| **Raster › FloodDepth** | Quick Flood Depth, Flood Depth over Time, Prepare DEM, Classify Water, Compare Flood Extents, **User Guide** |
+| **Raster › FloodDepth** | Quick Flood Depth, Flood Depth over Time, Prepare DEM, Export 3D Scene, Classify Water, Compare Flood Extents, **User Guide** |
 | **Raster toolbar** | One FloodDepth button: a click opens Quick Flood Depth, the arrow lists the rest |
 | **Processing Toolbox › FloodDepth** | Every tool (batch mode, Graphical Modeler, `processing.run()`) |
 | **Help** button in each dialog | That tool's section of the user guide (installed with the plugin, works offline) |
@@ -66,6 +70,7 @@ without it.
 | **Quick flood depth** | Image or extent + DEM → extent, water surface, depth, uncertainty, report |
 | **Flood depth over time** | Quick flood depth per image date; maximum observed depth, dates flooded, `series.html` |
 | **Prepare DEM** | Merge tiles, clip with a buffer, reproject to UTM (bilinear), check for resampling artefacts |
+| **Export 3D scene** | Rebuild the interactive 3D scene of a run with your own layers and level of detail |
 | 1. Classify water from imagery | Water mask and polygons (water or flood-trace mode) |
 | 1b. Classify water from training polygons | RGB, drone or aerial images; scenes where the indices fail |
 | 2. Water surface and depth from a flood extent | Polygons or a mask + DEM (or HAND) → surface and depth |
@@ -78,8 +83,8 @@ The 0.3 algorithm ids are kept.
 ## Outputs
 
 `depth.tif`, `wse.tif`, `evidence.tif`, `depth_p10/p50/p90.tif`, `flood_probability.tif`,
-`water_mask.tif`, `flood_extent.gpkg`, `report.html` (print to PDF) and `run.json` (every number
-and decision). The report's map colours can be set in the dialog (depth ramp, permanent water,
+`water_mask.tif`, `flood_extent.gpkg`, `report.html` (print to PDF), `scene3d.html` (interactive 3D)
+and `run.json` (every number and decision). The report's map colours can be set in the dialog (depth ramp, permanent water,
 flood edge, doubtful cells).
 
 ## Validation (summary)
@@ -116,13 +121,14 @@ Method, tables and scripts: [DOCUMENTATION.md](DOCUMENTATION.md) and `benchmarks
         imagery.py, sensors.py, classify.py           bands, indices, thresholds, masks
         surface.py, uncertainty.py                    water surface, depth, ensemble, evidence
         report.py, style.py, series.py                report, its look, the time series
+        scene3d.py, viewer3d.html                     the interactive 3D scene
       processing_provider/   the only place QGIS and core meet
       plugin.py              menu, toolbar button, guide
       help/                  the user guide shipped with the plugin
       tests/                 pure suites + qgis_smoke.py      tools/dev/   test runners, zip builder
 
-`bash tools/dev/run_tests.sh` runs flake8, Bandit, the 10 pure suites (175 checks, with and without
-SciPy) and the QGIS smoke test (47 checks: every tool through Processing, plus the menu, toolbar and
+`bash tools/dev/run_tests.sh` runs flake8, Bandit, the 11 pure suites (190 checks, with and without
+SciPy; also on NumPy 2 in the QGIS images) and the QGIS smoke test (50 checks: every tool through Processing, plus the menu, toolbar and
 guide) on QGIS 3.44 and 4.2 in Docker. GitHub Actions runs the same on every push and pull request.
 `bash tools/dev/make_zip.sh` builds the plugin zip.
 

@@ -74,6 +74,37 @@ def _open_for_write(path):
     return drv, drv.CreateDataSource(str(path))
 
 
+def valid_multipolygon(g):
+    """An OGR MultiPolygon that GEOS accepts. 8-connected regions from
+    gdal.Polygonize touch themselves at cell corners (a self-touching ring),
+    which QGIS tools (zonal statistics, clip, dissolve) refuse as invalid;
+    MakeValid splits them at the corner, Buffer(0) is the fallback."""
+    ogr = _ogr()
+    g = g.Clone()
+    with R.quiet():
+        valid = g.IsValid()
+    if not valid:
+        fixed = None
+        try:
+            fixed = g.MakeValid()
+        except (AttributeError, RuntimeError):
+            fixed = None
+        if fixed is None or fixed.IsEmpty():
+            fixed = g.Buffer(0)
+        if fixed.GetGeometryType() in (ogr.wkbGeometryCollection, ogr.wkbGeometryCollection25D):
+            mp = ogr.Geometry(ogr.wkbMultiPolygon)
+            for i in range(fixed.GetGeometryCount()):
+                part = fixed.GetGeometryRef(i)
+                if part.GetGeometryType() == ogr.wkbPolygon:
+                    mp.AddGeometry(part)
+                elif part.GetGeometryType() == ogr.wkbMultiPolygon:
+                    for j in range(part.GetGeometryCount()):
+                        mp.AddGeometry(part.GetGeometryRef(j))
+            fixed = mp
+        g = fixed
+    return ogr.ForceToMultiPolygon(g)
+
+
 def polygonize(mask, grid, path, layer="flood_extent", attrs=None, min_cells=0):
     """Write the True regions of `mask` as polygons to a GeoPackage layer.
 
@@ -113,7 +144,7 @@ def polygonize(mask, grid, path, layer="flood_extent", attrs=None, min_cells=0):
         if a < min_area:
             continue
         o = ogr.Feature(out.GetLayerDefn())
-        o.SetGeometry(ogr.ForceToMultiPolygon(g.Clone()))
+        o.SetGeometry(valid_multipolygon(g))
         o.SetField("area_m2", float(a))
         for k, v in attrs.items():
             o.SetField(k, v)

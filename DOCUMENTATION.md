@@ -315,6 +315,7 @@ or the image timing.
 | `water_mask.tif` | classification on the image grid, palette |
 | `flood_extent.gpkg` | `flood_extent` polygons (area_m2), `waterline` points (used / dropped, z, surface) |
 | `report.html` | decisions, warnings, statistics, maps, limitations |
+| `scene3d.html` | interactive 3D scene (WebGL 2, offline): terrain draped with the image, water by depth, mud and debris (evidence class 3) as a separate surface, flood edge, reference lines; terrain block-averaged to at most 600 000 vertices per surface (`core/scene3d.py`, viewer from the LandXML Road & Terrain GIS Tools) |
 | `run.json` | everything in the report, machine-readable, incl. run time by stage (`timings`) |
 
 The report prints on A4 portrait (about four pages).
