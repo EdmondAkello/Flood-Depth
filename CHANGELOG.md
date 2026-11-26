@@ -5,6 +5,15 @@ All notable changes to FloodDepth are recorded here.
 ## [Unreleased]
 
 ### Added
+- **Interactive 3D scene** (`scene3d.html`, written by Quick flood depth; on by default): the terrain draped
+  with the satellite image (or a hillshade), permanent water and doubtful cells painted on it, the water
+  surface coloured by depth, **mud and debris** (flood-trace erosion / deposition) as their own surface,
+  the flood edge, connectivity features and area of interest. One offline HTML file (WebGL 2, the
+  LandXML Road & Terrain viewer): rotate, layers and opacity, vertical exaggeration, click to read level
+  and depth, views, PNG and A3 export. **Export 3D scene** rebuilds it from a run folder with extra
+  layers, another level of detail or exaggeration. The report links to it.
+- **Evidence map in the report** (mud and debris in brown) and a **mud and debris colour** among the
+  map colours; `evidence.tif` uses the chosen colours.
 - **Raster menu and toolbar.** *Raster > FloodDepth* lists Quick Flood Depth, Flood Depth over
   Time, Prepare DEM, Classify Water, Compare Flood Extents and the User Guide; one button on the
   Raster toolbar opens Quick flood depth on a click and lists the other tools on its arrow.
@@ -64,6 +73,8 @@ All notable changes to FloodDepth are recorded here.
   Bandit; `tools/dev/run_tests.sh` runs the same locally.
 
 ### Fixed
+- **Flood polygons are valid geometries.** 8-connected regions touched themselves at cell corners, and
+  QGIS zonal statistics, clip and dissolve refused them; they are now split at the corner.
 - Step-by-step depth tools on a whole large DEM now stop with advice (area of interest) instead of
   trying to read it all.
 - Unused imports, ambiguous names and lambdas flagged by flake8.
