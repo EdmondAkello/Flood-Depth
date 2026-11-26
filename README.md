@@ -1,143 +1,134 @@
 # FloodDepth — flood extent, depth and uncertainty for QGIS
 
 [![tests](https://github.com/EdmondAkello/Flood-Depth/actions/workflows/tests.yml/badge.svg)](https://github.com/EdmondAkello/Flood-Depth/actions/workflows/tests.yml)
+![QGIS 3.44 – 4.x](https://img.shields.io/badge/QGIS-3.44%20%E2%80%93%204.x-589632)
+![License GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
 
-Quick, defensible flood-depth estimates from a satellite image of a flood (or a
-flood-extent layer) and a DEM, with uncertainty bands, computed entirely inside
-QGIS.
+FloodDepth turns a satellite image of a flood (or a flood-extent layer) and a DEM into a
+flood-depth map with uncertainty bands and a printable report, in one run, entirely inside QGIS.
+No external programs and no pip installs: it uses NumPy and the GDAL bindings that QGIS ships.
 
-Author: Edmond Akello · License: GPL-3.0-or-later · QGIS 3.28 – 4.x · version 0.4.1 (experimental)
+![FloodDepth run report: key figures, warnings, and the depth and flood-probability maps](help/figures/report_top.jpg)
 
 ## What it does
 
-Select the image files you downloaded, select a DEM, click Run:
-
-1. **Recognises the bands** from file names and metadata — Copernicus / EO
-   Browser "Raw" exports (`…_B03_(Raw).tiff`), Sentinel-2 SAFE / HLS, Landsat
-   Collection 2 (`…_SR_B3.TIF`), multiband stacks with band names, the Browser
-   "False color" product, Sentinel-1 VV/VH. Alpha / data-mask bands,
-   undeclared NoData sentinels and the Sentinel-2 −1000 DN offset are handled.
-2. **Classifies water** with NDWI plus confident MNDWI (or SAR backscatter,
-   speckle-filtered) and an **edge-based Otsu** threshold seeded at the physical value,
-   reporting its separability (η). A threshold
-   outside the physically usual range is **refused with an explanation**, not
-   used — a post-event image with no water left does not become a flood map.
-3. **Removes permanent water** using a pre-event image, ESA WorldCover or JRC
-   occurrence, so lakes and rivers are not counted as flood.
-4. **Flood-trace mode** for floods that drained before the overpass (flash
-   floods, debris flows): maps vegetation lost between two dates and splits it
-   into *inundation* and *erosion / deposition* evidence.
-5. **Estimates the water surface** from the terrain along the flood edge
-   (FwDET boundary method) — edges against NoData, cloud or permanent water are
-   not used, edge outliers (embankments, canopy) are screened, steep ground is
-   protected — and computes **depth = surface − DEM**. A HAND raster can be
-   used instead of the DEM.
-6. **Quantifies uncertainty** with a Monte Carlo ensemble (spatially
-   correlated DEM error, threshold band, edge shifts, extra terrain error where
-   the ground was eroded): **depth P10 / P50 / P90** and **flood probability**,
-   plus an **evidence layer** saying what each flooded cell is based on, including mapped cells whose
-   ground lies above the estimated water surface (*doubtful*: wet soil or crops classed as water).
-7. Writes an **HTML report** (prints on A4) with maps over the satellite image, every automatic
-   decision, statistics, warnings, limitations and the run time by stage.
-8. **Several dates**: maps each overpass and combines them (maximum observed depth, dates flooded).
-
-Every computation uses NumPy and the GDAL bindings QGIS ships. Nothing is
-installed with pip and no external process is started, so it runs on managed
-workstations where SAGA / GRASS / WhiteboxTools calls are blocked. When SciPy is
-available (most QGIS installs) a few kernels use it, and the uncertainty ensemble
-runs on several cores; without it the NumPy / GDAL paths give the same results.
-
-## Tools (Processing Toolbox → FloodDepth)
-
-| Tool | Use |
-|---|---|
-| **Quick flood depth (image or extent + DEM)** | The one-click workflow: classification → extent → water surface → depth → uncertainty → report, in a fixed output folder |
-| **Flood depth over time (several image dates)** | Quick flood depth per image date, then the maximum observed depth, dates flooded, and area / depth / volume over time (series.html, series.csv) |
-| 1. Classify water from imagery (automatic) | Water mask + polygons from image files (water or flood-trace mode) |
-| 1b. Classify water from training polygons | RGB, drone or aerial images; scenes where indices fail |
-| 2. Water surface and depth from a flood extent | Polygons or a mask raster + DEM (or HAND) → WSE and depth rasters |
-| 3. Flood depth from a water-surface raster | A known surface (hydraulic model, surveyed marks) − DEM |
-| Flood depth below a constant water level | Lake / reservoir level, flood mark, what-if level |
-| Compare flood extents (CSI, hit rate, false alarms) | Validate an extent against a reference |
-
-All tools work in batch mode, the Graphical Modeler and `processing.run()`.
-The 0.3 algorithm ids are kept.
-
-## Quick start
-
-1. In the Copernicus Browser, open the post-event Sentinel-2 L2A scene, *Download → Analytical*,
-   tick the **Raw** bands B02, B03, B04, B08, B11 (GeoTIFF). Optionally do the same for a clear
-   pre-event date.
-2. Get a DEM covering the area (FABDEM or Copernicus GLO-30 are good global choices; a LiDAR DTM
-   is better). A geographic DEM is fine: the analysis runs on the WGS 84 / UTM grid of the area.
-3. Run **Quick flood depth**: *Satellite image file(s)* = the band files, *DEM* = the DEM,
-   *Pre-event image file(s)* = the pre-event bands (or a WorldCover tile as *Permanent water
-   raster*), and an output folder.
-4. Open `report.html` in the output folder and read the *Check these* box first.
-
-Outputs (output folder): `depth.tif`, `wse.tif`, `evidence.tif`, `depth_p10.tif`,
-`depth_p50.tif`, `depth_p90.tif`, `flood_probability.tif`, `water_mask.tif`,
-`flood_extent.gpkg` (layers `flood_extent`, `waterline`), `report.html`, `run.json`.
-
-## Design
-
-    flooddepth/
-      core/                    ← NO QGIS IMPORTS. NumPy + GDAL/OGR only.
-        raster.py              GDAL I/O, NoData conventions, analysis grid, warping
-        sensors.py             band recognition from names / metadata
-        classify.py            indices, Otsu (edge-based, tile-based, separability, band), components, cleanup
-        imagery.py             files → water / trace mask (permanent water, cloud, offsets)
-        surface.py             waterline, outliers, nearest-edge allocation (jump flooding), depth
-        uncertainty.py         evidence classes, correlated DEM error, Monte Carlo ensemble
-        pipeline.py            the quick workflow (testable without QGIS)
-        compare.py, stats.py   validation scores, depth statistics
-        report.py, vector.py   HTML report, polygons ↔ grids
-      processing_provider/     ← the only place QGIS and core meet
-      tests/                   ← pure suites (no QGIS) + qgis_smoke.py
-      tools/dev/               ← test runners, zip builder
-
-The core is importable without QGIS:
-
-    python -m flooddepth.tests.test_surface     # analytic surfaces with known depths
-    python -m flooddepth.tests.test_pipeline    # the whole workflow on a synthetic site
-
-`tools/dev/ci_pure.sh` runs the 9 pure suites (161 checks with SciPy, 147 with the NumPy / GDAL
-fallbacks); `tools/dev/run_tests.sh` adds the QGIS smoke test (`tests/qgis_smoke.py`, 39 checks:
-every tool through real Processing).
-GitHub Actions runs the pure suites with and without SciPy, and a Bandit scan, on every push.
-
-## Validation (summary)
-
-* **Classification** — all 446 hand-labelled chips of Sen1Floods11 (11 flood events, 11 countries),
-  fully automatic: Sentinel-2 pooled CSI 0.74 (F1 0.85, area bias 1.01), Sentinel-1 VV 0.45.
-* **Depth** — known water surfaces imposed on FABDEM, ALOS, TanDEM-X and GLO-30 + HAND at Nyando and
-  Mai Mahiu; the uncertainty band covers about 77–95 % of true depths for valley-type floods; the edge
-  water level is placed halfway up the edge step, which cuts the flat-floodplain underestimate by
-  40–80 % (a smaller residual is documented).
-* **Case studies** — Nyando (Kano plains, 5 May 2024), Mai Mahiu (29 April 2024 flash flood, flood
-  trace), Buulo Gaduud–Afmadow (Juba, 3 Dec 2023).
-
-Details, tables and scripts: [DOCUMENTATION.md § 9](DOCUMENTATION.md#9-validation) and `benchmarks/`.
-
-## Method, assumptions and limits
-
-See [DOCUMENTATION.md](DOCUMENTATION.md) for the method, every automatic decision, the
-uncertainty model, validation results and references. In short:
-
-* Depths are **terrain-based estimates from the flood edge, not a hydraulic simulation**.
-* An extent that is too large (wet soil, shadow, vegetation classed as water) raises the
-  surface; one too small lowers it. The uncertainty bands and the evidence layer show where.
-* Accuracy is bounded by the DEM. Global 30 m DEMs are surface models with metre-level error
-  and smoothed channels: channel depths are underestimated.
-* A **flood trace is not a water extent**: it mixes inundation, scour and deposition; where the
-  ground was eroded the pre-event DEM no longer describes it.
+- **Reads the files you downloaded as they are.** Copernicus / EO Browser "Raw" bands, Sentinel-2
+  SAFE, Landsat Collection 2, multiband stacks and Sentinel-1 VV / VH are recognised from their
+  names and metadata.
+- **Maps the water** with NDWI plus confident MNDWI (or SAR backscatter) and an edge-based Otsu
+  threshold. A threshold outside the physically usual range is refused with the reason, not used.
+- **Removes permanent water** using a pre-event image, ESA WorldCover, JRC occurrence or lake polygons.
+- **Maps flood traces**: for floods that drained before the overpass, it maps the vegetation lost
+  between two dates and splits it into inundation and erosion / deposition.
+- **Estimates depth.** The water surface comes from the terrain along the flood edge (FwDET
+  boundary method, with outlier screening), or from a HAND raster. Depth = surface − DEM.
+- **Quantifies uncertainty.** A Monte Carlo ensemble (correlated DEM error, threshold and edge
+  perturbation, method error) gives depth P10 / P50 / P90 and flood probability. An evidence layer
+  says what each flooded cell is based on.
+- **Writes an HTML report** that prints to A4 PDF: maps over the satellite image, every automatic
+  decision, warnings and limitations.
+- **Handles national DEMs.** FABDEM, Copernicus GLO-30, ALOS, TanDEM-X, the **Google GEM 15 m DTM**
+  or LiDAR, as one file or as tiles. Only the cells under the area are read.
+- **Several dates**: depth per date, the maximum observed depth and the dates each cell flooded.
 
 ## Install
 
-From a release zip: *Plugins → Manage and Install Plugins → Install from ZIP*. To build the zip
-from a clone: `bash tools/dev/make_zip.sh` → `dist/FloodDepth_<version>.zip`.
+*Plugins › Manage and Install Plugins*, search **FloodDepth**, or *Install from ZIP* with a
+[release](https://github.com/EdmondAkello/Flood-Depth/releases) zip. QGIS 3.44 to 4.x; nothing else
+to install. When SciPy is present (most QGIS installs) a few steps use it; the results are the same
+without it.
+
+## Where to find it
+
+| Place | What is there |
+|---|---|
+| **Raster › FloodDepth** | Quick Flood Depth, Flood Depth over Time, Prepare DEM, Classify Water, Compare Flood Extents, **User Guide** |
+| **Raster toolbar** | One FloodDepth button: a click opens Quick Flood Depth, the arrow lists the rest |
+| **Processing Toolbox › FloodDepth** | Every tool (batch mode, Graphical Modeler, `processing.run()`) |
+| **Help** button in each dialog | That tool's section of the user guide (installed with the plugin, works offline) |
+
+## Quick start
+
+1. In the Copernicus Browser, open the post-event Sentinel-2 L2A scene, choose *Download ›
+   Analytical* and tick the **Raw** bands B02, B03, B04, B08 and B11 (GeoTIFF). Do the same for a
+   clear pre-event date if you have one.
+2. Get a DEM of the area: FABDEM, GLO-30, the GEM 15 m DTM (pick a tile and add the rest under
+   *More DEM tiles*) or a LiDAR DTM.
+3. Click the FloodDepth button. Set the image files, the DEM, the pre-event files (or a WorldCover
+   tile as *Permanent water raster*), an area of interest for a large scene, and an output folder.
+4. The depth, extent and evidence layers load into the map. Open `report.html` and read
+   *Check these* first.
+
+## Tools
+
+| Tool | Use |
+|---|---|
+| **Quick flood depth** | Image or extent + DEM → extent, water surface, depth, uncertainty, report |
+| **Flood depth over time** | Quick flood depth per image date; maximum observed depth, dates flooded, `series.html` |
+| **Prepare DEM** | Merge tiles, clip with a buffer, reproject to UTM (bilinear), check for resampling artefacts |
+| 1. Classify water from imagery | Water mask and polygons (water or flood-trace mode) |
+| 1b. Classify water from training polygons | RGB, drone or aerial images; scenes where the indices fail |
+| 2. Water surface and depth from a flood extent | Polygons or a mask + DEM (or HAND) → surface and depth |
+| 3. Flood depth from a water-surface raster | A known surface (hydraulic model, surveyed marks) − DEM |
+| Flood depth below a constant water level | Lake level, flood mark, what-if level |
+| Compare flood extents | CSI, hit rate, false alarms, bias against a reference |
+
+The 0.3 algorithm ids are kept.
+
+## Outputs
+
+`depth.tif`, `wse.tif`, `evidence.tif`, `depth_p10/p50/p90.tif`, `flood_probability.tif`,
+`water_mask.tif`, `flood_extent.gpkg`, `report.html` (print to PDF) and `run.json` (every number
+and decision). The report's map colours can be set in the dialog (depth ramp, permanent water,
+flood edge, doubtful cells).
+
+## Validation (summary)
+
+- **Classification.** All 446 hand-labelled chips of Sen1Floods11 (11 flood events), fully
+  automatic: Sentinel-2 CSI 0.74 (F1 0.85, area bias 1.01), Sentinel-1 VV CSI 0.45.
+- **Depth.** Known water surfaces were imposed on FABDEM, ALOS, TanDEM-X and GLO-30 + HAND at
+  Nyando and Mai Mahiu, and the GEM 15 m DTM was compared with them. The P10–P90 band covers about 77–95 % of the true depths
+  for valley-type floods.
+
+Method, tables and scripts: [DOCUMENTATION.md](DOCUMENTATION.md) and `benchmarks/`.
+
+## Limits
+
+- These are **terrain-based estimates from the flood edge, not a hydraulic model**: there is no
+  flow, velocity, timing or backwater.
+- **The extent drives everything.** Wet soil or crops classed as water raise the surface; missed
+  water lowers it. The evidence layer marks cells whose ground lies above the surface.
+- **Accuracy is bounded by the DEM.** 30 m DEMs smooth channels, so channel depths come out too
+  shallow. On wide flat floodplains the edge method still underestimates by about 0.5–0.8 m.
+
+## Documentation
+
+- **User guide**: *Raster › FloodDepth › User Guide* in QGIS
+  ([HTML](help/user-guide.html), [PDF](docs/user-guide/FloodDepth_User_Guide.pdf)).
+- **Method and validation**: [DOCUMENTATION.md](DOCUMENTATION.md).
+- **Changes**: [CHANGELOG.md](CHANGELOG.md).
+
+## Development
+
+    flooddepth/
+      core/                  NumPy + GDAL only, no QGIS imports (testable without QGIS)
+        pipeline.py          the quick workflow        dem.py      tiles, DEM check, Prepare DEM
+        imagery.py, sensors.py, classify.py           bands, indices, thresholds, masks
+        surface.py, uncertainty.py                    water surface, depth, ensemble, evidence
+        report.py, style.py, series.py                report, its look, the time series
+      processing_provider/   the only place QGIS and core meet
+      plugin.py              menu, toolbar button, guide
+      help/                  the user guide shipped with the plugin
+      tests/                 pure suites + qgis_smoke.py      tools/dev/   test runners, zip builder
+
+`bash tools/dev/run_tests.sh` runs flake8, Bandit, the 10 pure suites (175 checks, with and without
+SciPy) and the QGIS smoke test (47 checks: every tool through Processing, plus the menu, toolbar and
+guide) on QGIS 3.44 and 4.2 in Docker. GitHub Actions runs the same on every push and pull request.
+`bash tools/dev/make_zip.sh` builds the plugin zip.
 
 ## Citation
 
-Akello, E. (2026). *FloodDepth: flood extent, depth and uncertainty from satellite imagery and
-a DEM for QGIS* (version 0.4.1). https://github.com/EdmondAkello/Flood-Depth
+Akello, E. (2026). *FloodDepth: flood extent, depth and uncertainty from satellite imagery and a
+DEM for QGIS.* https://github.com/EdmondAkello/Flood-Depth
+
+Licensed under the GNU General Public License version 3 or later.
