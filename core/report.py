@@ -16,6 +16,8 @@ import re
 
 import numpy as np
 
+from . import style as ST
+
 from . import raster as R
 
 # sequential blue ramp for depth (light = shallow, dark = deep)
@@ -29,6 +31,59 @@ PERMANENT_RGB = (120, 80, 160)       # same as the water_mask colour table
 OUTLINE_RGB = (8, 37, 78)
 NODATA_RGB = (205, 205, 205)
 DOUBTFUL_RGB = (231, 138, 195)      # evidence class 5 (same as evidence.tif)
+
+# depth ramps offered for the maps (stops as fractions of the ramp top)
+DEPTH_RAMPS = {
+    "blues": [(0.0, (198, 219, 239)), (1 / 6, (107, 174, 214)), (1 / 3, (49, 130, 189)),
+              (2 / 3, (8, 81, 156)), (1.0, (8, 48, 107))],
+    "viridis": [(0.0, (253, 231, 37)), (0.25, (94, 201, 98)), (0.5, (33, 145, 140)), (0.75, (59, 82, 139)),
+                (1.0, (68, 1, 84))],
+    "ylgnbu": [(0.0, (237, 248, 177)), (0.25, (127, 205, 187)), (0.5, (29, 145, 192)), (0.75, (34, 94, 168)),
+               (1.0, (8, 29, 88))],
+    "magma": [(0.0, (252, 253, 191)), (0.25, (254, 159, 109)), (0.5, (222, 73, 104)), (0.75, (140, 41, 129)),
+              (1.0, (59, 15, 112))],
+}
+
+
+def _rgb(v, default):
+    """(r, g, b) from a tuple / list or '#rrggbb'; default when unusable."""
+    try:
+        if isinstance(v, str):
+            v = v.strip().lstrip("#")
+            return tuple(int(v[i:i + 2], 16) for i in (0, 2, 4))
+        if v is not None and len(v) >= 3:
+            return tuple(int(x) for x in v[:3])
+    except (TypeError, ValueError):
+        pass
+    return default
+
+
+class MapStyle(object):
+    """User colours for the report maps (and the loaded QGIS layers).
+
+    depth_ramp: a DEPTH_RAMPS key; depth_max: the depth (m) at the dark end
+    of the ramp; permanent / edge / doubtful / nodata: '#rrggbb' or (r, g, b)."""
+
+    def __init__(self, depth_ramp="blues", depth_max=3.0, permanent=None, edge=None, doubtful=None, nodata=None):
+        self.depth_ramp = depth_ramp if depth_ramp in DEPTH_RAMPS else "blues"
+        self.depth_max = float(depth_max) if depth_max and depth_max > 0 else 3.0
+        self.permanent = _rgb(permanent, PERMANENT_RGB)
+        self.edge = _rgb(edge, OUTLINE_RGB)
+        self.doubtful = _rgb(doubtful, DOUBTFUL_RGB)
+        self.nodata = _rgb(nodata, NODATA_RGB)
+
+    @classmethod
+    def from_dict(cls, d):
+        return d if isinstance(d, MapStyle) else cls(**(d or {}))
+
+    def as_dict(self):
+        hx = "#{:02x}{:02x}{:02x}".format
+        return {"depth_ramp": self.depth_ramp, "depth_max": self.depth_max, "permanent": hx(*self.permanent),
+                "edge": hx(*self.edge), "doubtful": hx(*self.doubtful), "nodata": hx(*self.nodata)}
+
+    def depth_stops(self):
+        return [(f * self.depth_max, c) for f, c in DEPTH_RAMPS[self.depth_ramp]]
+
 
 MAP_PX = 1000
 INSET_PX = 210
@@ -297,9 +352,10 @@ def _svg_map(b64, w, h, metres_per_px, inset=None, label=""):
 
 
 def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=None, max_px=MAP_PX,
-         doubtful=None):
+         doubtful=None, style=None):
     """Build the report maps. Returns dict with 'depth' (svg), optional 'prob' (svg),
     'backdrop' (label) and 'frame' (description)."""
+    st = MapStyle.from_dict(style)
     rows, cols = flood.shape
     r0, r1, c0, c1, zoomed, held = flood_frame(flood)
     h, w = r1 - r0, c1 - c0
@@ -325,15 +381,15 @@ def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=No
     base = _base_image(dem_d, grid.cell_x * step, rgb)
     nod = ~vd & ~fany
     hatch = _hatch(nod.shape) & nod
-    common = [(nod, NODATA_RGB, 0.35), (hatch, (150, 150, 150), 0.8)]
+    common = [(nod, st.nodata, 0.35), (hatch, (150, 150, 150), 0.8)]
     if od is not None:
-        common.append((od & ~fany, PERMANENT_RGB, 0.85))
-    dcol = ramp(np.nan_to_num(dd), DEPTH_RAMP)
+        common.append((od & ~fany, st.permanent, 0.85))
+    dcol = ramp(np.nan_to_num(dd), st.depth_stops())
     dbt = None
     if doubtful is not None and np.any(doubtful):
         dbt = (_block(doubtful[sl], step, "frac") >= 0.5) & fany
-    img = _compose(base, common + [(fany & np.isfinite(dd), dcol, 0.9), (dbt, DOUBTFUL_RGB, 0.85),
-                                   (_outline(fmaj) if step > 1 else _outline(fany), OUTLINE_RGB, 0.9)])
+    img = _compose(base, common + [(fany & np.isfinite(dd), dcol, 0.9), (dbt, st.doubtful, 0.85),
+                                   (_outline(fmaj) if step > 1 else _outline(fany), st.edge, 0.9)])
     mpp = grid.cell_x * step
     inset = None
     if zoomed:
@@ -348,7 +404,7 @@ def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=No
             except Exception:
                 irgb = None
         ibase = _base_image(idem, grid.cell_x * istep, irgb)
-        iimg = _compose(ibase, [(ifl, OUTLINE_RGB, 0.95)])
+        iimg = _compose(ibase, [(ifl, st.edge, 0.95)])
         ih, iw = iimg.shape[:2]
         sc = float(INSET_PX) / max(ih, iw)
         dispw, disph = iw * sc, ih * sc
@@ -362,8 +418,8 @@ def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=No
         pd = _block(prob[sl], step, "max")
         pm = np.isfinite(pd) & (pd >= 0.05)
         pcol = ramp(np.nan_to_num(pd), PROB_RAMP)
-        pimg = _compose(base, common + [(pm, pcol, 0.9), (_outline(fmaj) if step > 1 else _outline(fany),
-                                                           OUTLINE_RGB, 0.6)])
+        edge = _outline(fmaj) if step > 1 else _outline(fany)
+        pimg = _compose(base, common + [(pm, pcol, 0.9), (edge, st.edge, 0.6)])
         out["prob"] = _svg_map(_png_b64(pimg), dw, dh, mpp, None, "Flood probability map")
     return out
 
@@ -377,7 +433,7 @@ def quicklook_png(depth, flood, dem, grid, max_px=900):
 
 # ---------------------------------------------------------------- charts and tables
 
-def classes_svg(classes):
+def classes_svg(classes, stops=None):
     if not classes:
         return ""
     w, bh, gap, lw = 520, 22, 8, 90
@@ -388,7 +444,8 @@ def classes_svg(classes):
     for i, c in enumerate(classes):
         y = i * (bh + gap)
         bw = (w - lw - 140) * c["share"] / mx
-        mid = (DEPTH_RAMP[min(i, len(DEPTH_RAMP) - 1)][1])
+        stops = stops or DEPTH_RAMP
+        mid = stops[min(i, len(stops) - 1)][1]
         parts.append(f'<text x="{lw - 8}" y="{y + bh * 0.7}" text-anchor="end" class="ax">{html.escape(c["label"])}</text>')
         parts.append(f'<rect x="{lw}" y="{y}" width="{max(bw, 1):.1f}" height="{bh}" rx="3" '
                      f'fill="rgb{mid}"/>')
@@ -401,7 +458,7 @@ def classes_svg(classes):
 def _gradient_legend(stops, unit, title, top_label=None):
     vmax = stops[-1][0]
     css = ", ".join(f"rgb{c} {100 * v / vmax:.0f}%" for v, c in stops)
-    ticks = "".join(f"<span style='left:{100 * v / vmax:.0f}%'>{v:g}</span>" for v, _ in stops)
+    ticks = "".join(f"<span style='left:{100 * v / vmax:.0f}%'>{round(v, 2):g}</span>" for v, _ in stops)
     return (f"<div class='lg'><div class='lgt'>{html.escape(title)}</div>"
             f"<div class='bar' style='background:linear-gradient(90deg, {css})'></div>"
             f"<div class='ticks'>{ticks}<span class='u'>{html.escape(top_label or unit)}</span></div></div>")
@@ -499,88 +556,7 @@ def _files_html(paths):
     return "".join(out)
 
 
-CSS = """
-:root{--page:#eef0f3;--card:#ffffff;--fg:#1d2329;--mute:#5d6873;--line:#e2e5e9;--acc:#08519c;
---warn:#6f4a00;--warnbg:#fff6e0;--warnline:#f1d79b;--info:#33414f;--infobg:#f3f5f8;--infoline:#dde2e8;--shadow:0 1px 2px rgba(16,24,40,.06)}
-@media (prefers-color-scheme: dark){:root{--page:#0f1316;--card:#171c21;--fg:#e6e8ea;--mute:#9aa4ad;--line:#2a3138;
---acc:#6baed6;--warn:#f0c674;--warnbg:#2b2414;--warnline:#4d3f1c;--info:#c6ced6;--infobg:#1d2329;--infoline:#2c343c;--shadow:none}}
-*{box-sizing:border-box}
-html{background:var(--page)}
-body{background:var(--page);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0}
-header{background:var(--card);border-bottom:1px solid var(--line)}
-.wrap{max-width:1200px;margin:0 auto;padding:0 16px}
-header .wrap{padding-top:22px;padding-bottom:18px}
-h1{font-size:23px;margin:0 0 4px;letter-spacing:-.01em}
-.meta{color:var(--mute);margin:0;font-size:14px}.meta b{color:var(--fg);font-weight:600}
-main.wrap{padding-top:18px;padding-bottom:56px}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:16px}
-.kpi{background:var(--page);border-radius:10px;padding:10px 14px}
-.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums;line-height:1.25}
-.kpi span{color:var(--mute);font-size:13px}.kpi small{display:block;color:var(--mute);font-size:12px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;box-shadow:var(--shadow);min-width:0}
-.card+.card,.cols+.card,.card+.cols,.cols+.cols{margin-top:16px}
-.cols>.card{margin-top:0}
-.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:16px;align-items:start}
-h2{font-size:16px;margin:0 0 12px}
-h3{font-size:14px;margin:16px 0 6px;color:var(--mute);font-weight:600}
-.sub{color:var(--mute);font-size:13.5px;margin:8px 0 0}
-table{border-collapse:collapse;width:100%;font-size:14px}
-th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-tr:last-child th,tr:last-child td{border-bottom:0}
-th{color:var(--mute);font-weight:500;width:42%}
-td{font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-.warn,.note{border-radius:8px;padding:8px 12px;margin:6px 0;font-size:14px;border:1px solid}
-.warn{background:var(--warnbg);color:var(--warn);border-color:var(--warnline)}
-.note{background:var(--infobg);color:var(--info);border-color:var(--infoline)}
-details summary{cursor:pointer;color:var(--mute);font-size:13px}
-pre{white-space:pre-wrap;font-size:12.5px;margin:6px 0 0}
-.maps{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,440px),1fr));gap:16px}
-figure{margin:0}
-svg.map{width:100%;height:auto;display:block;border-radius:8px;border:1px solid var(--line);background:#f6f6f4}
-figcaption{font-size:13px;color:var(--mute);margin-top:8px}
-.ax{font-size:12px;fill:var(--fg)}
-.lg{margin-top:10px;max-width:360px}.lgt{font-size:12.5px;color:var(--mute);margin-bottom:3px}
-.bar{height:10px;border-radius:3px}
-.ticks{position:relative;height:16px;font-size:11.5px;color:var(--mute)}
-.ticks span{position:absolute;transform:translateX(-50%);top:1px}.ticks span:first-child{transform:none}
-.ticks span.u{display:none}
-.sw{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--mute);margin-top:8px}
-.sw i{display:inline-block;width:14px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
-.path{color:var(--mute);font-size:12.5px;overflow-wrap:anywhere}
-ul.files{margin:6px 0 0;padding-left:18px;font-size:13px}
-ol,ul{padding-left:20px;margin:0}li{margin:3px 0}
-code{font-size:13px}
-@page{size:A4 portrait;margin:12mm 11mm 14mm}
-@media print{
-:root{--page:#fff;--card:#fff;--fg:#111;--mute:#555;--line:#d4d7db;--acc:#08519c;--warn:#5a3c00;--warnbg:#fff6e0;
---warnline:#e6c77d;--info:#333;--infobg:#f4f5f7;--infoline:#d8dce1;--shadow:none}
-*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-html,body{background:#fff;font-size:9.5pt;line-height:1.4}
-.wrap{max-width:none;padding:0}
-header{border:0;background:#fff}header .wrap{padding:0 0 3mm}
-h1{font-size:15pt}h2{font-size:11pt;margin-bottom:2mm}h3{font-size:9.5pt}.meta{font-size:8.5pt}
-.kpis{grid-template-columns:repeat(3,1fr);gap:2mm;margin-top:3mm}
-.kpi{padding:2mm 3mm;border:1px solid var(--line)}.kpi b{font-size:13pt}.kpi span,.kpi small{font-size:7.5pt}
-main.wrap{padding:0}
-.card{border:1px solid var(--line);border-radius:2mm;padding:3mm 4mm;box-shadow:none}
-.card+.card,.cols+.card,.card+.cols,.cols+.cols{margin-top:3mm}
-.cols{grid-template-columns:1fr 1fr;gap:3mm}
-h2,h3{break-after:avoid}
-figure.prob,.pg{break-before:page}
-figure.prob svg.map{max-height:105mm}
-.cols>.card,.card.keep,.warn,.note,figure,tr{break-inside:avoid}
-.maps{grid-template-columns:1fr;gap:4mm}
-section.mapcard{break-inside:auto}
-svg.map{max-height:118mm;width:auto;max-width:100%;margin:0 auto}
-table{font-size:8.5pt}th,td{padding:.6mm 1.5mm}
-.sub,figcaption,.path,ul.files,.sw,.lgt{font-size:7.5pt}
-.ticks{font-size:7pt;height:11px}
-details>summary{list-style:none;color:var(--fg)}details>summary::-webkit-details-marker{display:none}
-.printonly{display:block!important}
-.warn,.note{font-size:8.5pt;padding:1.5mm 2.5mm}
-}
-.printonly{display:none}
-"""
+CSS = ST.CSS   # LandXML Road & Terrain report look (core/style.py)
 
 LIMITS = [
     "Depths are terrain-based estimates from the flood edge, not a hydraulic simulation: no flow, "
@@ -602,7 +578,8 @@ LIMITS = [
 # ---------------------------------------------------------------- the report
 
 def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=None, other=None,
-                 prob=None, backdrop=None, doubtful=None):
+                 prob=None, backdrop=None, doubtful=None, style=None):
+    st = MapStyle.from_dict(style)
     d = info.get("depth", {})
     cls = info.get("classification")
     s = info.get("surface", {})
@@ -626,19 +603,16 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
     method = "HAND" if o.get("method") == "hand" else "boundary elevation (DEM)"
     when = (cls or {}).get("date")
     sensor = (cls or {}).get("sensor")
-    meta = []
+    facts = []
     if when:
-        meta.append(f"Image <b>{html.escape(str(when))}</b>" + (f" ({html.escape(str(sensor))})" if sensor else ""))
-    meta += [f"{html.escape(method)} method", f"run {html.escape(info.get('started', ''))}",
-             f"{_duration(info.get('seconds'))}", f"FloodDepth {html.escape(info.get('version', ''))}"]
-    h = ["<!doctype html><html lang='en'><head><meta charset='utf-8'>",
-         "<meta name='viewport' content='width=device-width,initial-scale=1'>",
-         "<title>FloodDepth run report</title><style>", CSS, "</style></head><body>",
-         "<header><div class='wrap'><h1>Flood depth estimate</h1>",
-         "<p class='meta'>" + " · ".join(x for x in meta if x) + "</p><div class='kpis'>"]
+        facts.append(("Image", f"{when}" + (f" ({sensor})" if sensor else "")))
+    facts += [("Method", method), ("Run", info.get("started", "")), ("Duration", _duration(info.get("seconds"))),
+              ("Version", f"FloodDepth {info.get('version', '')}")]
+    h = [ST.head("FloodDepth - flood depth estimate"), ST.band("Flood depth estimate", facts),
+         "<main class='wrap'>", ST.PRINT_HINT, "<div class='kpis'>"]
     h += [f"<div class='kpi'><b>{html.escape(v)}</b><span>{html.escape(n)}</span>"
           + (f"<small>{html.escape(sm)}</small>" if sm else "") + "</div>" for n, v, sm in k]
-    h.append("</div></div></header><main class='wrap'>")
+    h.append("</div>")
 
     res, inp = group_notes(info.get("warnings"), (cls or {}).get("notes"))
     if res:
@@ -650,19 +624,19 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
     if depth is not None and grid is not None and flood is not None:
         try:
             m = maps(depth, flood, dem, grid, valid=valid, other=other, prob=prob, backdrop=backdrop,
-                     doubtful=doubtful)
+                     doubtful=doubtful, style=st)
             fw, fhh = m["frame_km"]
-            sw = [("flood edge", f"background:rgb{OUTLINE_RGB}")]
+            sw = [("flood edge", f"background:rgb{st.edge}")]
             if other is not None and other.any():
-                sw.append(("permanent water", f"background:rgb{PERMANENT_RGB}"))
+                sw.append(("permanent water", f"background:rgb{st.permanent}"))
             if m.get("doubtful"):
-                sw.append(("doubtful: ground above the water surface", f"background:rgb{DOUBTFUL_RGB}"))
+                sw.append(("doubtful: ground above the water surface", f"background:rgb{st.doubtful}"))
             sw.append(("no data / cloud", "background:repeating-linear-gradient(45deg,#999 0 2px,#ddd 2px 6px)"))
             where = (f"{fw:,.1f} x {fhh:,.1f} km around the main flood area ({100 * m['held']:.0f} % of the "
-                     "flooded cells); the inset shows the whole analysis area (flood in dark blue, frame in red)"
+                     "flooded cells); the inset shows the whole analysis area (flood in the edge colour, frame in red)"
                      if m["zoomed"] else f"the whole analysis area, {fw:,.1f} x {fhh:,.1f} km")
             h.append("<section class='card mapcard'><h2>Maps</h2><div class='maps'>")
-            h.append("<figure>" + m["depth"] + _gradient_legend(DEPTH_RAMP, "m", "Depth (m)", "m")
+            h.append("<figure>" + m["depth"] + _gradient_legend(st.depth_stops(), "m", "Depth (m)", "m")
                      + _swatches(sw) + f"<p class='sub'>Background: {html.escape(m['backdrop'])}. "
                      f"Frame: {html.escape(where)}.</p></figure>")
             if "prob" in m:
@@ -677,8 +651,8 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
     # depth + uncertainty
     h.append("<div class='cols'><section class='card'><h2>Depth</h2>")
     if d.get("classes"):
-        h.append(classes_svg(d["classes"]))
-    h.append("<h3>Statistics</h3><table>")
+        h.append(classes_svg(d["classes"], st.depth_stops()))
+    h.append("<h3>Statistics</h3><table class='grid'>")
     h.append("<tr><th></th><td><b>All flood cells</b></td><td><b>Interior</b></td></tr>")
     for key, lab, nd in (("cells", "Cells", 0), ("mean_m", "Mean (m)", 2), ("median_m", "Median (m)", 2),
                          ("p90_m", "90th percentile (m)", 2), ("p99_m", "99th percentile (m)", 2),
@@ -695,7 +669,7 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
                  "all-cell mean is dominated by edges.</p>")
     h.append("</section>")
     if u:
-        h.append("<section class='card'><h2>Uncertainty</h2><table>")
+        h.append("<section class='card'><h2>Uncertainty</h2><table class='grid'>")
         a, md, vv = u["area_km2_p10_p50_p90"], u["mean_depth_m_p10_p50_p90"], u["volume_m3_p10_p50_p90"]
         h.append("<tr><th></th><td><b>P10</b></td><td><b>P50</b></td><td><b>P90</b></td></tr>")
         h.append(f"<tr><th>Flooded area (km²)</th><td>{a[0]:,.2f}</td><td>{a[1]:,.2f}</td><td>{a[2]:,.2f}</td></tr>")
@@ -724,7 +698,7 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
     ev = info.get("evidence")
     h.append("<div class='cols pg'>")
     if ev:
-        h.append("<section class='card'><h2>What the extent is based on</h2><table>")
+        h.append("<section class='card'><h2>What the extent is based on</h2><table class='grid'>")
         h.append("<tr><th>Evidence</th><td><b>km²</b></td><td><b>Mean depth (m)</b></td>"
                  "<td><b>P90-P10 (m)</b></td><td><b>P(flood)</b></td></tr>")
         for r in ev:
@@ -805,13 +779,16 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
     h.append("<section class='card keep'><details><summary><b>Limitations</b> - read before using the depths</summary><ul>")
     h += [f"<li>{html.escape(x)}</li>" for x in LIMITS]
     h.append("</ul></details></section>")
-    h.append("<p class='printonly sub'>FloodDepth run report - output folder: "
-             + html.escape(str(o.get("out_dir") or "")) + "</p></main>")
+    h.append("<p class='printonly sub'>Output folder: " + html.escape(str(o.get("out_dir") or "")) + "</p></main>")
+    h.append(ST.foot(info.get("version", ""), info.get("started", "")[:10]))
     # print: every collapsed section opens, then closes again afterwards
     h.append("<script>(function(){var o=[];addEventListener('beforeprint',function(){o=[];"
              "document.querySelectorAll('details:not([open]):not(.compact)').forEach(function(d){d.open=true;o.push(d)})});"
              "addEventListener('afterprint',function(){o.forEach(function(d){d.open=false})})})();</script>")
     h.append("</body></html>")
+    text = "\n".join(h)
+    i = text.find("<main")
+    text = text[:i] + ST.number_sections(text[i:]) if i >= 0 else text
     with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(h))
+        f.write(text)
     return path

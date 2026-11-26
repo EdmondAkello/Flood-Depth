@@ -3,7 +3,7 @@
 """Validation: compare a flood extent with a reference extent."""
 
 from qgis.core import (
-    QgsProcessing,
+    Qgis,
     QgsProcessingException,
     QgsProcessingOutputNumber,
     QgsProcessingParameterFeatureSource,
@@ -39,15 +39,15 @@ class CompareExtentsAlgorithm(FloodDepthAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "PRED_POLYS", "Flood extent to test (polygons)", [QgsProcessing.TypeVectorPolygon], optional=True))
+            "PRED_POLYS", "Flood extent to test (polygons)", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer("PRED_RASTER", "...or as a mask raster", optional=True))
         self.number("PRED_VALUE", "Water value in that raster", "double", 1.0)
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "REF_POLYS", "Reference extent (polygons)", [QgsProcessing.TypeVectorPolygon], optional=True))
+            "REF_POLYS", "Reference extent (polygons)", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer("REF_RASTER", "...or as a mask raster", optional=True))
         self.number("REF_VALUE", "Water value in that raster", "double", 1.0)
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "AOI", "Area of interest", [QgsProcessing.TypeVectorPolygon], optional=True))
+            "AOI", "Area of interest", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.number("CELL", "Comparison cell (m; 0 = a raster's own grid, else 10 m)", "double", 0.0, 0.0)
         self.addParameter(QgsProcessingParameterRasterDestination("AGREEMENT", "Agreement raster"))
         for k in ("CSI", "HIT_RATE", "FALSE_ALARM_RATIO", "BIAS", "F1"):

@@ -5,6 +5,25 @@ All notable changes to FloodDepth are recorded here.
 ## [Unreleased]
 
 ### Added
+- **Raster menu and toolbar.** *Raster > FloodDepth* lists Quick Flood Depth, Flood Depth over
+  Time, Prepare DEM, Classify Water, Compare Flood Extents and the User Guide; one button on the
+  Raster toolbar opens Quick flood depth on a click and lists the other tools on its arrow.
+- **User guide installed with the plugin** (`help/user-guide.html`, offline): opened from the menu
+  and from every tool's Help button at the tool's section. PDF in `docs/user-guide/`.
+- **DEM tiles.** Quick flood depth and the time-series tool take *More DEM tiles*; tiles are
+  combined into a virtual mosaic (`core/dem.py`), and when they come in several coordinate systems
+  (the Google GEM 15 m DTM ships Kenya in four UTM zones) the one covering the area best is used.
+- **Prepare DEM** tool: merge tiles, clip with a buffer, reproject to the local UTM zone with
+  bilinear (or cubic) resampling, float32; a DEM already in the target CRS keeps its cells. Nearest
+  neighbour is not offered.
+- **DEM check** in every run and in Prepare DEM: repeated rows / columns (nearest-neighbour
+  resampling upstream) and whole-metre storage on flat ground are reported (after QEHT's DEM audit).
+- **Google GEM 15 m DTM** DEM-error preset (2.0 m) from the file name.
+- **Map colours**: depth ramp (Blues, Viridis, Yellow-green-blue, Magma), the depth at its dark
+  end, and the colours of permanent water, the flood edge and doubtful cells, for the report maps
+  and the loaded depth layer (advanced parameters; saved in run.json).
+- **Memory check** before the DEM is read: a warning above half the free memory, a refusal with
+  advice above 90 % (about 64 bytes per analysis cell, measured).
 - **Flood depth over time (several image dates)**: a new tool. Image files of several dates are
   grouped by the date in their names; each date runs Quick flood depth in its own folder with the
   same DEM and settings, then `max_depth.tif` (deepest water seen on any date), `dates_flooded.tif`,
@@ -24,7 +43,30 @@ All notable changes to FloodDepth are recorded here.
 - Note when the pre-event image is a rendered colour composite (the Raw bands give a cleaner
   permanent-water mask).
 
+### Changed
+- **Large DEMs and images are read in windows.** The DEM (and HAND, permanent-water rasters) is
+  read only over the analysis grid, not whole: a 16 384 x 16 384 tile went from 5.3 s and 1.1 GB to
+  0.3 s for a 2 000 x 2 000 area; a whole 32 768 x 32 768 GEM tile (4.3 GB as float32) no longer
+  has to fit in memory. With an area of interest the image is read only around it (the area plus
+  half its size each side, for the threshold); Nyando with a 30 % x 30 % AOI: 37 s -> 14 s.
+- **Water surface per flood cluster.** FillNodata runs on the boxes around groups of flood
+  patches instead of one box over all of them (identical result; 14x faster on two distant
+  patches, the Juba layout).
+- **Report and series page in the LandXML Road & Terrain look**: title band with the run facts,
+  numbered sections with contents, indigo / teal / amber cards, tabular figures, A4 print layout
+  with page numbers and a footer.
+- **QGIS 3.44 to 4.x**: minimum version 3.44; Processing enums in their `Qgis.*` form
+  (`ProcessingSourceType`, `ProcessingParameterFlag`, `ProcessingNumberParameterType`,
+  `CrsWktVariant`, `ShaderInterpolationMethod`).
+- Quick flood depth dialog: pre-event image and mode next to the image, area of interest earlier,
+  connectivity features last; shorter help.
+- CI: QGIS smoke test on QGIS 3.44.15 and 4.2.3 (Docker), flake8 (`.flake8`, 130 columns) and
+  Bandit; `tools/dev/run_tests.sh` runs the same locally.
+
 ### Fixed
+- Step-by-step depth tools on a whole large DEM now stop with advice (area of interest) instead of
+  trying to read it all.
+- Unused imports, ambiguous names and lambdas flagged by flake8.
 - **Copernicus Browser Sentinel-1 'Raw' in UINT16** (linear backscatter x 65535) was read as dB,
   so every pixel looked bright and no water was found (Nyando 6 May 2024). Now scaled to linear.
 - **Bright-cloud test scaled band by band.** In a Copernicus Browser uint16 export (reflectance

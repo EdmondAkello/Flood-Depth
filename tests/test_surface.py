@@ -143,6 +143,30 @@ def test_depth_helpers():
     check("box sum (corner 4, centre 9)", b[0, 0] == 4 and b[2, 2] == 9)
 
 
+def test_fill_regions():
+    print("\n7. Surface fill per flood cluster equals one fill over the whole window")
+    import time
+    from ..core import raster as R
+    rows, cols = 1200, 1500
+    yy, xx = np.mgrid[0:rows, 0:cols].astype("float32")
+    z = (100.0 + 0.01 * xx + 0.02 * yy).astype("float32")
+    flood = np.zeros((rows, cols), bool)
+    flood[50:90, 60:120] = True          # two patches far apart (Juba-type scene)
+    flood[1100:1150, 1380:1450] = True
+    known = flood & SF.neighbours_any(~flood, 4)   # the patch rims
+    g = R.Grid(cols, rows, (0.0, 10.0, 0.0, 12000.0, 0.0, -10.0), R.srs_from_epsg(32737).ExportToWkt())
+    ms = SF.search_distance(known, flood)
+    t = time.time()
+    one = SF.fill_from_points(z, known, g, max_search=ms)
+    t1 = time.time() - t
+    t = time.time()
+    reg = SF.fill_regions(z, known, flood, g, ms)
+    t2 = time.time() - t
+    check("identical surface on the flood cells", np.allclose(one[flood], reg[flood]),
+          f"max diff {float(np.nanmax(np.abs(one[flood] - reg[flood]))):.2e} m")
+    check("faster than one fill over the window", t2 < t1, f"{t1:.2f} s -> {t2:.2f} s")
+
+
 if __name__ == "__main__":
     test_nearest()
     test_waterline()
@@ -150,4 +174,5 @@ if __name__ == "__main__":
     test_outliers_and_steep()
     test_edge_step()
     test_depth_helpers()
+    test_fill_regions()
     finish("test_surface")

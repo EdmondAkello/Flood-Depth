@@ -87,6 +87,33 @@ def main():
     mm, vv = R.mask_to_grid(m, valid, src, dst, 0.5)
     check("all-NoData destination cell is invalid", not vv[:, 9].any())
 
+    print("\n4. Windowed reads of a large DEM tile")
+    ramp = (np.arange(400, dtype="float32")[None, :] + 1000.0 * np.arange(300, dtype="float32")[:, None])
+    ramp[:5, :] = np.nan        # undeclared NaN NoData (Google GEM 15 m tiles)
+    tile = _write(os.path.join(d, "gem15_tile.tif"), [ramp], (500000, 15, 0, 9900000, 0, -15), 32737, "Float32")
+    ds = R.open_dataset(tile)
+    win = R.pixel_window(ds, (501500, 9897000, 503000, 9898500), pad=0)
+    check("window covers only the requested cells", win is not None and win[:4] == (100, 100, 100, 100), str(win and win[:4]))
+    check("window of the whole raster is None", R.pixel_window(ds, (499000, 9895000, 507000, 9901000)) is None)
+    sub = R.Grid(50, 40, (501500, 15, 0, 9898500, 0, -15), ds.GetProjection())
+    a, notes = R.read_on_grid(tile, sub, 1, "bilinear", zero_nodata_auto=True)
+    full, fg, _ = R.read_band(tile, 1)
+    check("windowed read equals the full read on the grid",
+          np.allclose(a, R.warp_array(full, fg, sub, "bilinear"), equal_nan=True))
+    check("windowed read lands on the right cells", float(a[0, 0]) == float(ramp[100, 100]),
+          f"{a[0, 0]} vs {ramp[100, 100]}")
+    nan_win = R.Grid(20, 10, (500000, 15, 0, 9900000, 0, -15), ds.GetProjection())
+    a2, _ = R.read_on_grid(tile, nan_win, 1, "bilinear")
+    check("undeclared NaN NoData stays NoData", np.isnan(a2[:5]).all() and np.isfinite(a2[6:]).all())
+    big = R.Grid(400, 300, ds.GetGeoTransform(), ds.GetProjection())
+    check("crop_grid snaps to the lattice", R.crop_grid(big, (501500, 9897000, 503000, 9898500)).shape == (100, 100))
+    check("crop_grid ignores bounds that cover the grid", R.crop_grid(big, (0, 0, 1e7, 1e8)) is big)
+    try:
+        R.pixel_window(ds, (0, 0, 10, 10))
+        check("no overlap is refused", False)
+    except R.RasterError:
+        check("no overlap is refused", True)
+
 
 if __name__ == "__main__":
     main()

@@ -356,19 +356,19 @@ def dilate(mask, cells):
 def fit_centroids(water_samples, land_samples, min_samples=10):
     """Standardised two-class nearest-centroid model (n_samples x n_bands)."""
     w = np.asarray(water_samples, dtype="float64")
-    l = np.asarray(land_samples, dtype="float64")
-    if w.ndim != 2 or l.ndim != 2 or w.shape[1] != l.shape[1]:
+    lnd = np.asarray(land_samples, dtype="float64")
+    if w.ndim != 2 or lnd.ndim != 2 or w.shape[1] != lnd.shape[1]:
         raise ValueError("Training samples must be 2-D arrays with matching band counts.")
     w = w[np.all(np.isfinite(w), axis=1)]
-    l = l[np.all(np.isfinite(l), axis=1)]
-    if len(w) < min_samples or len(l) < min_samples:
-        raise ValueError(f"Not enough valid training pixels (water {len(w)}, land {len(l)}; "
+    lnd = lnd[np.all(np.isfinite(lnd), axis=1)]
+    if len(w) < min_samples or len(lnd) < min_samples:
+        raise ValueError(f"Not enough valid training pixels (water {len(w)}, land {len(lnd)}; "
                          f"at least {min_samples} each).")
-    allv = np.vstack((w, l))
+    allv = np.vstack((w, lnd))
     mean = allv.mean(axis=0)
     scale = allv.std(axis=0)
     scale[~np.isfinite(scale) | (scale < 1e-8)] = 1.0
-    return mean, scale, ((w - mean) / scale).mean(axis=0), ((l - mean) / scale).mean(axis=0)
+    return mean, scale, ((w - mean) / scale).mean(axis=0), ((lnd - mean) / scale).mean(axis=0)
 
 
 def classify_centroids(stack, model):

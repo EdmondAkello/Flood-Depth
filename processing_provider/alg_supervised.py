@@ -4,7 +4,7 @@
 
 import numpy as np
 from qgis.core import (
-    QgsProcessing,
+    Qgis,
     QgsProcessingException,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterRasterDestination,
@@ -42,16 +42,16 @@ class SupervisedWaterAlgorithm(FloodDepthAlgorithm):
         self.addParameter(QgsProcessingParameterString("BANDS", "Bands to use (comma-separated, empty = all data bands)",
                                                        defaultValue="", optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "WATER_TRAIN", "Water training polygons", [QgsProcessing.TypeVectorPolygon]))
+            "WATER_TRAIN", "Water training polygons", [Qgis.ProcessingSourceType.VectorPolygon]))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "LAND_TRAIN", "Non-water training polygons", [QgsProcessing.TypeVectorPolygon]))
+            "LAND_TRAIN", "Non-water training polygons", [Qgis.ProcessingSourceType.VectorPolygon]))
         self.number("MIN_WATER", "Remove water patches smaller than (cells)", "int", 10, 0)
         self.addParameter(QgsProcessingParameterRasterDestination("MASK", "Water mask"))
         self.addParameter(QgsProcessingParameterVectorDestination(
-            "POLYGONS", "Water polygons", QgsProcessing.TypeVectorPolygon))
+            "POLYGONS", "Water polygons", Qgis.ProcessingSourceType.VectorPolygon))
 
     def processAlgorithm(self, parameters, context, feedback):
-        from ..core import raster as R, vector as V, classify as C, imagery as I
+        from ..core import raster as R, vector as V, classify as C, imagery as IMG
         path = self.raster_path(parameters, "IMAGE", context)
         ds = R.open_dataset(path)
         alpha = R.alpha_band_index(ds)
@@ -82,9 +82,9 @@ class SupervisedWaterAlgorithm(FloodDepthAlgorithm):
         feedback.pushInfo(f"Training pixels: water {int(wm.sum()):,}, non-water {int(lm.sum()):,}. "
                           f"Water {100 * water.sum() / max(1, valid.sum()):.2f} % of valid pixels; cleanup {cs}.")
         out = self.parameterAsOutputLayer(parameters, "MASK", context)
-        R.write_raster(out, I.mask_raster_values(water, valid), grid, 255, "Byte",
+        R.write_raster(out, IMG.mask_raster_values(water, valid), grid, 255, "Byte",
                        {"VALUES": "1 water, 0 dry, 255 NoData", "METHOD": "nearest centroid"},
-                       color_table=I.MASK_COLORS)
+                       color_table=IMG.MASK_COLORS)
         vout = self.parameterAsOutputLayer(parameters, "POLYGONS", context)
         import os
         if vout.lower().endswith(".gpkg") and os.path.exists(vout):

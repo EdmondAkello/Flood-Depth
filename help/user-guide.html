@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FloodDepth - User Guide</title>
+<style>
+:root{--fg:#1f2433;--muted:#5d6377;--line:#dcdcec;--soft:#f6f6fc;--navy:#2b2766;--indigo:#4a45a6;
+--indigo-soft:#ecebf8;--teal:#1f8f80;--teal-soft:#e6f4f1;--amber:#e39a26;--amber-soft:#fdf1dc}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+html{background:#f1f1f7}
+body{font:14.5px/1.58 "Segoe UI",Inter,system-ui,-apple-system,Roboto,"Liberation Sans",sans-serif;color:var(--fg);
+background:#fff;margin:24px auto;max-width:1040px;padding:0 0 36px;box-shadow:0 2px 18px #2b276614;border-radius:8px}
+.band{background:linear-gradient(90deg,var(--indigo-soft),#f8f8fd 70%);border-left:8px solid var(--indigo);
+border-bottom:3px solid var(--amber);padding:26px 40px 20px;border-radius:8px 8px 0 0}
+.band .kicker{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#b06e0c;font-weight:600;margin-bottom:6px}
+.band h1{color:var(--navy);font-size:30px;margin:0 0 6px;letter-spacing:-.01em}
+.band p{margin:0;color:var(--muted)}
+main{padding:4px 40px 0}
+h1.part{font-size:22px;color:var(--navy);margin:40px 0 4px}
+h1.part .num{display:block;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--teal);margin-bottom:2px}
+h2{font-size:19px;color:var(--navy);margin:30px 0 10px;padding-bottom:5px;border-bottom:2px solid var(--indigo)}
+h2 .no{display:inline-block;min-width:28px;padding:0 6px;margin-right:10px;border-radius:4px;background:var(--teal);
+color:#fff;font-size:14px;text-align:center}
+h3{font-size:15.5px;color:var(--indigo);margin:20px 0 6px}
+p{margin:0 0 10px}ul,ol{margin:0 0 12px;padding-left:22px}li{margin:3px 0}
+code{font-family:"Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace;font-size:12.5px;background:var(--soft);
+padding:0 4px;border-radius:3px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:6px 0 14px}
+th,td{border-bottom:1px solid var(--line);padding:6px 9px;vertical-align:top;text-align:left}
+th{background:var(--indigo-soft);color:var(--navy);font-weight:650;border-bottom:2px solid var(--indigo)}
+tbody tr:nth-child(even) td{background:#fafafe}
+td:first-child{white-space:nowrap}
+td.wrap{white-space:normal}
+figure{margin:12px 0 18px}figure img{width:100%;border:1px solid var(--line);border-radius:6px;display:block}
+figcaption{font-size:12.5px;color:var(--muted);margin-top:6px}figcaption b{color:var(--fg)}
+.note,.tip,.warn{padding:9px 13px;margin:10px 0 14px;border-radius:0 5px 5px 0;font-size:13.5px}
+.note{background:var(--teal-soft);border-left:3px solid var(--teal)}
+.tip{background:var(--indigo-soft);border-left:3px solid var(--indigo)}
+.warn{background:var(--amber-soft);border-left:3px solid var(--amber)}
+.note b:first-child,.tip b:first-child,.warn b:first-child{display:block;font-size:10.5px;letter-spacing:.1em;
+text-transform:uppercase;margin-bottom:2px}
+.toc{border:1px solid var(--line);border-radius:6px;padding:12px 18px;margin:20px 0;background:var(--soft)}
+.toc b{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--indigo);margin-bottom:6px}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:30px;font-size:13.5px}.toc a{color:var(--fg);text-decoration:none}
+.toc a:hover{color:var(--indigo)}
+.steps{counter-reset:s;list-style:none;padding:0}
+.steps li{counter-increment:s;position:relative;padding-left:38px;margin:8px 0}
+.steps li:before{content:counter(s);position:absolute;left:0;top:0;width:26px;height:26px;border-radius:50%;
+background:var(--indigo);color:#fff;font-weight:650;text-align:center;line-height:26px;font-size:13px}
+a{color:var(--indigo)}
+.foot{margin:34px 40px 0;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-1px;margin-right:4px;border:1px solid #0002}
+@page{size:A4;margin:16mm 14mm 18mm 14mm;
+@bottom-left{content:"FloodDepth user guide";font:8pt system-ui,sans-serif;color:#5b6575}
+@bottom-right{content:"Page " counter(page) " of " counter(pages);font:8pt system-ui,sans-serif;color:#5b6575}}
+@media print{
+html{background:#fff}body{margin:0;max-width:none;box-shadow:none;border-radius:0;font-size:9.6pt}
+.band{border-radius:0;padding:14px 16px 10px}.band h1{font-size:22pt}main{padding:0 2px}.foot{margin:18px 2px 0}
+h1.part{break-before:page;margin-top:0;padding-top:8mm;font-size:17pt}
+h2{font-size:13pt;break-after:avoid}h3{font-size:11pt;break-after:avoid}
+table{font-size:8.4pt}th,td{padding:1mm 1.6mm}tr,figure,.note,.tip,.warn{break-inside:avoid}
+.toc{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<header class="band">
+<div class="kicker">FloodDepth for QGIS 3.44 - 4.x</div>
+<h1>User Guide</h1>
+<p>Flood extent, water depth and their uncertainty from satellite imagery and a DEM, computed inside QGIS.</p>
+</header>
+<main>
+
+<nav class="toc"><b>Contents</b><ol>
+<li><a href="#overview">What FloodDepth does</a></li>
+<li><a href="#install">Install and where to find it</a></li>
+<li><a href="#quickstart">Quick start</a></li>
+<li><a href="#imagery">Satellite images</a></li>
+<li><a href="#dems">DEMs, tiles and the GEM 15 m DTM</a></li>
+<li><a href="#prepare">Prepare DEM</a></li>
+<li><a href="#quick">Quick flood depth: every setting</a></li>
+<li><a href="#colours">Map colours</a></li>
+<li><a href="#series">Flood depth over time</a></li>
+<li><a href="#steps">Step-by-step tools</a></li>
+<li><a href="#compare">Compare flood extents</a></li>
+<li><a href="#report">Reading the report</a></li>
+<li><a href="#outputs">Output files</a></li>
+<li><a href="#speed">Speed and memory</a></li>
+<li><a href="#trouble">When a run is refused</a></li>
+<li><a href="#limits">Limits and good practice</a></li>
+<li><a href="#validation">Validation and citation</a></li>
+</ol></nav>
+
+<h1 class="part"><span class="num">Part 1</span>Getting started</h1>
+
+<h2 id="overview"><span class="no">1</span>What FloodDepth does</h2>
+<p>FloodDepth turns a satellite image of a flood (or a flood-extent layer) and a DEM into a flood-depth map with
+uncertainty bands and a printable report. In one run it:</p>
+<ul>
+<li><b>recognises the bands</b> of the files you downloaded (Copernicus / EO Browser "Raw" exports, Sentinel-2 SAFE,
+Landsat Collection 2, multiband stacks, Sentinel-1 VV / VH) from their names and metadata;</li>
+<li><b>maps water</b> with NDWI plus confident MNDWI (or SAR backscatter) and an edge-based Otsu threshold, and
+<b>refuses</b> a threshold outside the physically usual range instead of using it;</li>
+<li><b>removes permanent water</b> using a pre-event image, ESA WorldCover, JRC occurrence or lake polygons;</li>
+<li>estimates the <b>water surface</b> from the terrain along the flood edge (the FwDET boundary method) and
+computes <b>depth = water surface - DEM</b>;</li>
+<li>runs a <b>Monte Carlo ensemble</b> (correlated DEM error, threshold and edge perturbation, method error) for
+depth P10 / P50 / P90 and the flood probability;</li>
+<li>writes an <b>HTML report</b> that prints to A4 PDF, with maps over the satellite image, every automatic decision,
+warnings and limitations.</li>
+</ul>
+<p>Everything runs inside QGIS with NumPy and the GDAL bindings that QGIS ships: no external programs, no pip installs.
+SciPy, when present, speeds up a few steps; the results are the same without it.</p>
+<div class="warn"><b>Not a hydraulic model</b>The depths are terrain-based estimates from the flood edge. There is no
+flow, velocity, timing or backwater. Use them for rapid assessment, damage screening and to check or seed a model.</div>
+
+<h2 id="install"><span class="no">2</span>Install and where to find it</h2>
+<p>Install from <i>Plugins &rsaquo; Manage and Install Plugins</i> (search "FloodDepth"), or <i>Install from ZIP</i>
+with a release zip. FloodDepth runs on QGIS 3.44 and on QGIS 4 (Qt 6).</p>
+<table>
+<thead><tr><th>Place</th><th>What is there</th></tr></thead>
+<tbody>
+<tr><td>Raster &rsaquo; FloodDepth</td><td class="wrap">Quick Flood Depth, Flood Depth over Time, Prepare DEM, Classify
+Water from Imagery, Compare Flood Extents and this User Guide.</td></tr>
+<tr><td>Raster toolbar</td><td class="wrap">The FloodDepth button: a click opens Quick Flood Depth, the arrow lists the
+other tools and the guide.</td></tr>
+<tr><td>Processing Toolbox</td><td class="wrap">Every tool, under <i>FloodDepth</i>, grouped as <i>Flood depth</i>,
+<i>DEM preparation</i>, <i>Step by step</i> and <i>Validation</i>. Tools work in batch mode, the Graphical Modeler and
+<code>processing.run()</code>.</td></tr>
+<tr><td>Help button</td><td class="wrap">The <b>Help</b> button of each tool's dialog opens its section of this guide,
+which is installed with the plugin and works offline.</td></tr>
+</tbody></table>
+
+<h2 id="quickstart"><span class="no">3</span>Quick start</h2>
+<ol class="steps">
+<li><b>Image.</b> In the Copernicus Browser, open the post-event Sentinel-2 L2A scene, <i>Download &rsaquo;
+Analytical</i>, and tick the <b>Raw</b> bands B02, B03, B04, B08 and B11 (GeoTIFF). Do the same for a clear
+pre-event date if you have one.</li>
+<li><b>DEM.</b> Get a DEM covering the area: FABDEM, Copernicus GLO-30, ALOS AW3D30, TanDEM-X, the Google GEM 15 m DTM
+or a LiDAR DTM. A geographic (latitude / longitude) DEM is fine.</li>
+<li><b>Run.</b> Click the FloodDepth button. Set <i>Satellite image file(s)</i> to the band files, <i>DEM</i> to the
+DEM, <i>Pre-event image file(s)</i> to the pre-event bands (or a WorldCover tile as <i>Permanent water raster</i>),
+an <i>Area of interest</i> if the image is large, and an output folder. Click <b>Run</b>.</li>
+<li><b>Read.</b> Flood depth, flood extent and evidence load into the map. Open <code>report.html</code> from the
+output folder and read the <i>Check these</i> box first.</li>
+</ol>
+<figure><img src="figures/dialog_quick.jpg" alt="Quick flood depth dialog">
+<figcaption><b>Quick flood depth.</b> The main inputs are on top; the method settings and map colours are under
+<i>Advanced</i>.</figcaption></figure>
+
+<h1 class="part"><span class="num">Part 2</span>Preparing the data</h1>
+
+<h2 id="imagery"><span class="no">4</span>Satellite images</h2>
+<p>Select the files as they are; do not rename or stack them. Bands are recognised from their names
+(<code>_B03_</code>, <code>SR_B3</code>, <code>VV</code> ...) and the band descriptions inside the files.</p>
+<table>
+<thead><tr><th>Source</th><th>Select</th><th>Index used</th></tr></thead>
+<tbody>
+<tr><td>Copernicus / EO Browser Sentinel-2</td><td class="wrap">the <b>Raw</b> band files B02, B03, B04, B08, B11</td>
+<td class="wrap">NDWI + confident MNDWI</td></tr>
+<tr><td>Sentinel-2 SAFE</td><td class="wrap">the band files of the L2A product</td><td>NDWI + confident MNDWI</td></tr>
+<tr><td>Landsat 8 / 9 Collection 2</td><td class="wrap"><code>SR_B2</code> to <code>SR_B6</code></td>
+<td>NDWI + confident MNDWI</td></tr>
+<tr><td>Browser "False color"</td><td class="wrap">the rendered composite (no SWIR1)</td>
+<td class="wrap">NDWI only (noted in the report)</td></tr>
+<tr><td>Sentinel-1</td><td class="wrap">VV (and VH) in linear, dB or Browser UINT16 form</td>
+<td class="wrap">SAR backscatter after a 5 x 5 speckle filter</td></tr>
+</tbody></table>
+<p>True-colour pictures and rendered SAR visualisations hold display colours, not reflectance, and are refused with the
+reason. Clouds are masked from the blue band; give the blue band (B02) so it can be done.</p>
+<div class="tip"><b>Flash floods</b>When the water drained before the overpass, choose <i>Flood trace after the water
+drained</i> and give a pre-event image: FloodDepth maps vegetation stripped between the two dates and splits it into
+inundation and erosion / deposition evidence.</div>
+
+<h2 id="dems"><span class="no">5</span>DEMs, tiles and the GEM 15 m DTM</h2>
+<p>The depth is only as good as the DEM under the flood edge. Prefer a bare-earth model (LiDAR, FABDEM, GEM) to a
+surface model (GLO-30, ALOS, TanDEM-X): in a surface model the edge sits on canopy and roofs.</p>
+<table>
+<thead><tr><th>DEM</th><th>Cell</th><th>DEM error used (1 sigma)</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>LiDAR / drone DTM</td><td>&lt; 5 m</td><td>0.15 m</td><td class="wrap">best; name the file with "lidar",
+"drone" or "survey" for the preset</td></tr>
+<tr><td>FABDEM</td><td>30 m</td><td>1.5 m</td><td class="wrap">bare earth (forests and buildings removed)</td></tr>
+<tr><td>Google GEM 15 m DTM</td><td>15 m</td><td>2.0 m</td><td class="wrap">bare earth at twice the resolution of the
+30 m products; see below</td></tr>
+<tr><td>Copernicus GLO-30, TanDEM-X</td><td>30 m</td><td>2.0 m</td><td class="wrap">surface models</td></tr>
+<tr><td>ALOS AW3D30</td><td>30 m</td><td>2.5 m</td><td class="wrap">whole metres: flat floodplains are stepped</td></tr>
+<tr><td>SRTM / NASADEM</td><td>30 m</td><td>4.0 m</td><td class="wrap">older, noisier</td></tr>
+</tbody></table>
+<p>The DEM error is taken from the file name when it names the product; otherwise 2 m is assumed and the report says
+so. Set <i>DEM vertical error</i> to override it.</p>
+
+<h3>Tiled DEMs</h3>
+<p>Give one tile as the <i>DEM</i> and the others under <i>More DEM tiles</i>, or select every tile: FloodDepth combines
+them into a virtual mosaic and reads only the cells under the image or area of interest, so a 30 000 x 30 000 tile
+costs no more than a small clip. Tiles in other coordinate systems are left out (the report says which).</p>
+
+<h3>The Google GEM 15 m DTM</h3>
+<ul>
+<li>The Kenya export ships the whole country four times, once per UTM zone (EPSG:32636, 32637, 32736, 32737), in
+tiles of up to 32 768 x 32 768 cells. Select the tiles of one zone, or all of them: the zone that covers the area best
+is used.</li>
+<li>Missing cells (Lake Victoria, some water bodies) are stored as NaN with no NoData value declared. FloodDepth treats
+them as NoData; flood edges against them are not used.</li>
+<li>At the two test sites (Nyando and Mai Mahiu) GEM sat about 3 m above FABDEM on average (2.8-3.2 m). A uniform offset does not
+change the depth (the water surface comes from the same DEM), but it matters if you compare water levels between
+DEMs.</li>
+<li>In the depth benchmark (a known water surface imposed on FABDEM, depth estimated on each DEM at 30 m) GEM's
+error was close to ALOS's and TanDEM-X's: mean absolute error 1.2-1.4 m at Nyando and 3.8-5.6 m in the Mai Mahiu
+valley, with the smallest bias of the three at Mai Mahiu. Its value is the 15 m cell: narrow channels and embankments
+are resolved, at four times the cells per area (<code>benchmarks/dem_gem15.py</code>).</li>
+</ul>
+
+<h2 id="prepare"><span class="no">6</span>Prepare DEM</h2>
+<p><i>Raster &rsaquo; FloodDepth &rsaquo; Prepare DEM</i> makes one analysis-ready DEM from tiles: merged, clipped to an
+extent with a buffer, reprojected to the WGS 84 / UTM zone of the area (or a CRS you choose) with <b>bilinear</b>
+resampling, float32, compressed. Use it when the same area is analysed many times or to share a DEM; Quick flood depth
+reads tiles directly too.</p>
+<figure><img src="figures/dialog_prepare.jpg" alt="Prepare DEM dialog"><figcaption><b>Prepare DEM.</b> Pick the
+extent from a layer or the map canvas.</figcaption></figure>
+<p>The output is checked and the findings go to the log and to a <code>.json</code> file beside it:</p>
+<ul>
+<li><b>Repeated rows or columns</b>: the DEM was resampled with nearest neighbour (or exported finer than its native
+grid). The copies make steps that the flood-edge elevations pick up. Nearest neighbour is therefore not offered.</li>
+<li><b>Whole-metre storage on flat ground</b>: when the elevations are stored in steps larger than the typical change
+from one cell to the next, flood-edge levels are rounded to the step.</li>
+</ul>
+<div class="note"><b>No depression filling</b>Hydrology tools (QEHT) fill sinks so water can drain. FloodDepth must
+not: filling raises the ground exactly where flood water stands, and the depth is the water surface minus the real
+ground.</div>
+
+<h1 class="part"><span class="num">Part 3</span>The tools</h1>
+
+<h2 id="quick"><span class="no">7</span>Quick flood depth: every setting</h2>
+<h3>Main settings</h3>
+<table>
+<thead><tr><th>Setting</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Satellite image file(s)</td><td class="wrap">The post-event bands (section 4).</td></tr>
+<tr><td>...or a flood-extent layer</td><td class="wrap">Polygons from another source (a Copernicus EMS product, a
+hydraulic model, a survey) instead of an image.</td></tr>
+<tr><td>DEM, More DEM tiles</td><td class="wrap">Section 5.</td></tr>
+<tr><td>Pre-event image file(s)</td><td class="wrap">Water already there before the flood is permanent water, not
+flood. Required for flood-trace mode.</td></tr>
+<tr><td>What the image shows</td><td class="wrap">Water at the overpass (default), or the trace of a flood that
+drained.</td></tr>
+<tr><td>Area of interest</td><td class="wrap">Limits the run. The image is read only around it (the area plus half its
+size on each side, for a stable threshold), so large scenes run much faster.</td></tr>
+<tr><td>Permanent water raster / polygons</td><td class="wrap">ESA WorldCover (class 80), JRC occurrence (&ge; 50 %),
+any water mask, or lake and river polygons.</td></tr>
+<tr><td>Keep only flooding connected to</td><td class="wrap">Drops water bodies not touching a river, road or reach
+(within the connection distance).</td></tr>
+<tr><td>Depth method</td><td class="wrap">Flood-edge elevation on the DEM (default), or flood-edge height on a HAND
+raster.</td></tr>
+<tr><td>Uncertainty ensemble members</td><td class="wrap">20 by default; 10 for a first look; 0 switches the ensemble
+off.</td></tr>
+<tr><td>DEM vertical error</td><td class="wrap">0 = from the file name (section 5).</td></tr>
+</tbody></table>
+<h3>Advanced settings</h3>
+<table>
+<thead><tr><th>Setting</th><th>Default</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td>Water index</td><td>Automatic</td><td class="wrap">Force NDWI, MNDWI, the consensus or SAR.</td></tr>
+<tr><td>Manual threshold</td><td>empty</td><td class="wrap">Skips the automatic threshold (e.g. 0 for NDWI).</td></tr>
+<tr><td>Automatic threshold</td><td>Edge-based Otsu</td><td class="wrap">Or tile-based / global Otsu.</td></tr>
+<tr><td>Band numbers</td><td>0</td><td class="wrap">Only for a multiband file whose bands are not named.</td></tr>
+<tr><td>Remove water patches smaller than</td><td>10 cells</td><td class="wrap">Speckle and small ponds.</td></tr>
+<tr><td>Fill dry holes up to</td><td>0</td><td class="wrap">0 keeps islands.</td></tr>
+<tr><td>Bright-cloud limit</td><td>0.25</td><td class="wrap">Blue reflectance above which a cell is cloud.</td></tr>
+<tr><td>Analysis cell size</td><td>DEM</td><td class="wrap">A larger cell makes very large areas lighter.</td></tr>
+<tr><td>Surface interpolation</td><td>Inverse distance</td><td class="wrap">Or the nearest flood edge (FwDET v1).</td></tr>
+<tr><td>Smoothing radius / tolerance</td><td>2 cells / 0.5 m</td><td class="wrap">Light smoothing of the surface.</td></tr>
+<tr><td>Edge water level</td><td>0.5, cap 1 m</td><td class="wrap">Where the edge water level sits between the last wet
+and the first dry cell.</td></tr>
+<tr><td>Edge outlier window / limit / minimum</td><td>10 / 3 / 0.5 m</td><td class="wrap">Screens edge cells on
+embankments and canopy.</td></tr>
+<tr><td>Steep ground</td><td>10 %</td><td class="wrap">Above it a flood cell is a flow path, not ponding.</td></tr>
+<tr><td>DEM error correlation length</td><td>150 m</td><td class="wrap">Spatial correlation of the DEM error.</td></tr>
+<tr><td>Random seed</td><td>42</td><td class="wrap">Same seed, same bands.</td></tr>
+<tr><td>Map colours</td><td></td><td class="wrap">Section 8.</td></tr>
+<tr><td>Load every output</td><td>off</td><td class="wrap">Also loads the surface, P10 / P50 / P90, probability and
+water mask.</td></tr>
+</tbody></table>
+
+<h2 id="colours"><span class="no">8</span>Map colours</h2>
+<p>The report maps and the loaded <i>Flood depth</i> layer share the colours set under <i>Advanced &rsaquo; Map
+colours</i>:</p>
+<table>
+<thead><tr><th>Setting</th><th>Default</th></tr></thead>
+<tbody>
+<tr><td>Depth ramp</td><td class="wrap">Blues (light = shallow, dark = deep); also Viridis, Yellow-green-blue, Magma
+(colour-blind safe)</td></tr>
+<tr><td>Depth at the dark end of the ramp</td><td class="wrap">3 m; lower it for shallow ponding, raise it for deep
+valley floods</td></tr>
+<tr><td>Permanent water</td><td><span class="swatch" style="background:#7850a0"></span>#7850a0</td></tr>
+<tr><td>Flood edge</td><td><span class="swatch" style="background:#08254e"></span>#08254e</td></tr>
+<tr><td>Doubtful cells</td><td><span class="swatch" style="background:#e78ac3"></span>#e78ac3</td></tr>
+</tbody></table>
+<p>QGIS remembers the last values you used in the dialog. The colours are saved in <code>run.json</code>.</p>
+
+<h2 id="series"><span class="no">9</span>Flood depth over time</h2>
+<p>Select the band files of several dates together. They are grouped by the date in their names (YYYY-MM-DD,
+YYYY_MM_DD or YYYYMMDD), and each date runs Quick flood depth in its own sub-folder with the same DEM, permanent water,
+area of interest and settings. A date with no water left is reported and skipped.</p>
+<table>
+<thead><tr><th>File</th><th>Content</th></tr></thead>
+<tbody>
+<tr><td><code>max_depth.tif</code></td><td class="wrap">Deepest water seen at each cell on any mapped date</td></tr>
+<tr><td><code>dates_flooded.tif</code></td><td class="wrap">Number of dates each cell was flooded</td></tr>
+<tr><td><code>first_date_flooded.tif</code></td><td class="wrap">First date flooded (1 = first date)</td></tr>
+<tr><td><code>series.html</code>, <code>series.csv</code></td><td class="wrap">Area, depth and volume per date with
+P10-P90 bars, charts spaced by time, the maximum-depth map</td></tr>
+</tbody></table>
+<div class="tip"><b>Comparable dates</b>Give an area of interest so every date covers the same ground. Sentinel-1 maps
+less of a shallow flood among crops than Sentinel-2; the summary warns when dates mix sensors.</div>
+
+<h2 id="steps"><span class="no">10</span>Step-by-step tools</h2>
+<table>
+<thead><tr><th>Tool</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td>1. Classify water from imagery</td><td class="wrap">Water mask and polygons only (water or flood-trace
+mode).</td></tr>
+<tr><td>1b. Classify water from training polygons</td><td class="wrap">RGB, drone or aerial images, and scenes where
+the indices fail: draw water and non-water polygons.</td></tr>
+<tr><td>2. Water surface and depth from a flood extent</td><td class="wrap">Polygons or a mask raster + DEM (or HAND)
+to the surface and depth rasters, optionally with the waterline points used and dropped.</td></tr>
+<tr><td>3. Flood depth from a water-surface raster</td><td class="wrap">A known surface (hydraulic model, surveyed
+marks) minus the DEM.</td></tr>
+<tr><td>Flood depth below a constant water level</td><td class="wrap">Lake or reservoir level, a flood mark, a what-if
+level.</td></tr>
+</tbody></table>
+
+<h2 id="compare"><span class="no">11</span>Compare flood extents</h2>
+<p>Scores an extent (raster or polygons) against a reference: critical success index (CSI), hit rate, false-alarm
+ratio and area bias, with an agreement raster (hit, miss, false alarm).</p>
+
+<h1 class="part"><span class="num">Part 4</span>Results</h1>
+
+<h2 id="report"><span class="no">12</span>Reading the report</h2>
+<p><code>report.html</code> opens in any browser. To keep a PDF, print it (Chrome or Edge: <i>Save as PDF</i>, A4):
+pages are numbered, the maps keep their colours, and the collapsed sections open for printing.</p>
+<figure><img src="figures/report_top.jpg" alt="Run report: title band, key figures, check these and maps">
+<figcaption><b>Run report.</b> Key figures with their P10-P90 range, the <i>Check these</i> box, then the depth and
+flood-probability maps over the satellite image (Nyando, 5 May 2024, GEM 15 m DTM).</figcaption></figure>
+<table>
+<thead><tr><th>Section</th><th>Read it for</th></tr></thead>
+<tbody>
+<tr><td>Check these</td><td class="wrap">Warnings about the result: doubtful cells, low separability, DEM defects,
+memory. Read first.</td></tr>
+<tr><td>Maps</td><td class="wrap">Depth over the image (pink = doubtful, hatched = NoData or cloud), framed on the main
+flood with an inset of the whole area; flood probability beside it.</td></tr>
+<tr><td>Depth, Uncertainty</td><td class="wrap">Area by depth class, statistics for all flood cells and for the
+interior (without the edge ring), the ensemble's P10 / P50 / P90 of area, mean depth and volume.</td></tr>
+<tr><td>What the extent is based on</td><td class="wrap">Area and depth by evidence class (below).</td></tr>
+<tr><td>Water surface, Classification</td><td class="wrap">How many edge cells were used and dropped; the index,
+threshold, separability (eta) and cloud share.</td></tr>
+<tr><td>Inputs, Processing log</td><td class="wrap">Files, grid, settings, the steps taken and the time by stage.</td></tr>
+</tbody></table>
+<h3>Evidence classes (<code>evidence.tif</code>)</h3>
+<table>
+<thead><tr><th>Code</th><th>Evidence</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>observed water</td><td class="wrap">water in the image at the overpass</td></tr>
+<tr><td>2</td><td>trace - inundation</td><td class="wrap">vegetation lost, still vegetated: water passed</td></tr>
+<tr><td>3</td><td>trace - erosion / deposition</td><td class="wrap">bare soil or sediment after the event; the DEM may be
+outdated</td></tr>
+<tr><td>4</td><td>steep flow path</td><td class="wrap">slope above 10 %: water flowed, did not pond</td></tr>
+<tr><td>5</td><td>doubtful</td><td class="wrap">mapped as flood, but the ground lies above the estimated water surface
+(depth 0): wet soil or crops classed as water, a DSM artefact, or a surface too low there</td></tr>
+<tr><td>0</td><td>extent from polygons</td><td class="wrap">the layer you gave</td></tr>
+</tbody></table>
+
+<h2 id="outputs"><span class="no">13</span>Output files</h2>
+<table>
+<thead><tr><th>File</th><th>Content</th></tr></thead>
+<tbody>
+<tr><td><code>depth.tif</code></td><td class="wrap">flood depth (m), NoData outside the flood</td></tr>
+<tr><td><code>wse.tif</code></td><td class="wrap">water-surface elevation (or water height above drainage with
+HAND)</td></tr>
+<tr><td><code>evidence.tif</code></td><td class="wrap">evidence class, with a colour table</td></tr>
+<tr><td><code>depth_p10/p50/p90.tif</code></td><td class="wrap">ensemble depth percentiles (a dry member counts as 0
+m)</td></tr>
+<tr><td><code>flood_probability.tif</code></td><td class="wrap">share of ensemble members flooded</td></tr>
+<tr><td><code>water_mask.tif</code></td><td class="wrap">classification on the image grid (1 flood, 2 permanent, 0
+dry)</td></tr>
+<tr><td><code>flood_extent.gpkg</code></td><td class="wrap">flood polygons with their area</td></tr>
+<tr><td><code>report.html</code>, <code>run.json</code></td><td class="wrap">the report; every number and decision in
+machine-readable form</td></tr>
+</tbody></table>
+
+<h2 id="speed"><span class="no">14</span>Speed and memory</h2>
+<ul>
+<li><b>Give an area of interest</b> on large scenes: the image and the DEM are read only around it.</li>
+<li><b>DEM tiles are read in windows</b>: only the cells under the analysis area leave the disk.</li>
+<li><b>The ensemble is the longest stage</b> (about 70 % of a run). Use 10 members for a first look; the members run in
+parallel on all but one CPU core (<code>FLOODDEPTH_THREADS</code> sets the number).</li>
+<li><b>Memory</b>: before the DEM is read, FloodDepth estimates the memory the run needs (about 64 bytes per analysis
+cell). It warns above half the free memory and stops, with advice, above 90 %. A larger analysis cell size, an area of
+interest or closing other programs lowers it.</li>
+<li>For reference: Nyando, 7.9 million cells at 15 m (GEM), 20 members, about 35 s on two cores; 1.9 million cells at
+30 m (FABDEM) about 30 s.</li>
+</ul>
+
+<h2 id="trouble"><span class="no">15</span>When a run is refused</h2>
+<table>
+<thead><tr><th>Message</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td class="wrap">Could not find the bands for an automatic water index</td><td class="wrap">Give the Raw bands
+(green, NIR, SWIR1), not a rendered picture; or set the band numbers of a multiband file.</td></tr>
+<tr><td class="wrap">The automatic threshold is outside the range</td><td class="wrap">The image probably shows little
+or no water (drained flood: use flood-trace mode), or cloud and shadow dominate. Set a manual threshold only if you are
+sure.</td></tr>
+<tr><td class="wrap">No water was found</td><td class="wrap">As above; check the date and the bands.</td></tr>
+<tr><td class="wrap">Only n waterline cells were found</td><td class="wrap">The flood does not border dry ground with
+valid terrain: the DEM does not cover around the flood, or the extent is clipped at the image edge.</td></tr>
+<tr><td class="wrap">The analysis grid ... needs about n GB</td><td class="wrap">Give an area of interest or a larger
+cell size.</td></tr>
+<tr><td class="wrap">does not overlap the analysis area</td><td class="wrap">The DEM and the image cover different
+places; check the CRS of both.</td></tr>
+</tbody></table>
+
+<h2 id="limits"><span class="no">16</span>Limits and good practice</h2>
+<ul>
+<li><b>The extent drives everything.</b> Wet soil, shadow or flooded vegetation classed as water raise the surface;
+flood missed by dark-water SAR lowers it. Look at the mask before the depths.</li>
+<li><b>Wide flat floodplains.</b> The edge method still underestimates depth (about 0.5-0.8 m with water 3 m above the
+drainage) where the water surface follows the drainage across a broad plain.</li>
+<li><b>Channels.</b> 30 m DEMs smooth channels, so channel depths are underestimated; 15 m and LiDAR DEMs do better.</li>
+<li><b>Timing.</b> The image shows the water at the overpass, which may be before or after the peak.</li>
+<li><b>Flood traces</b> mix inundation, scour and deposition: treat depths in erosion / deposition cells as
+indicative.</li>
+</ul>
+
+<h2 id="validation"><span class="no">17</span>Validation and citation</h2>
+<ul>
+<li><b>Classification:</b> all 446 hand-labelled chips of Sen1Floods11 (11 flood events), fully automatic: Sentinel-2
+CSI 0.74 (F1 0.85, area bias 1.01), Sentinel-1 VV CSI 0.45.</li>
+<li><b>Depth:</b> known water surfaces imposed on FABDEM, ALOS, TanDEM-X and GLO-30 + HAND at Nyando and Mai Mahiu;
+the P10-P90 band covers about 77-95 % of the true depths for valley-type floods.</li>
+</ul>
+<p>Method, tables and references: <a href="https://github.com/EdmondAkello/Flood-Depth/blob/main/DOCUMENTATION.md">
+DOCUMENTATION.md</a>. Issues and questions: <a href="https://github.com/EdmondAkello/Flood-Depth/issues">GitHub
+issues</a>.</p>
+<p><b>Cite as:</b> Akello, E. (2026). <i>FloodDepth: flood extent, depth and uncertainty from satellite imagery and a
+DEM for QGIS.</i> https://github.com/EdmondAkello/Flood-Depth</p>
+</main>
+<footer class="foot">FloodDepth is free software under the GNU General Public License version 3 or later. Terrain-based
+estimates, not a hydraulic model.</footer>
+</body>
+</html>

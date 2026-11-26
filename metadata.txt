@@ -1,40 +1,43 @@
 [general]
 name=FloodDepth
-qgisMinimumVersion=3.28
+qgisMinimumVersion=3.44
 qgisMaximumVersion=4.99
 description=Flood extent, water depth and their uncertainty from satellite imagery and a DEM, computed entirely inside QGIS: no external executables, no extra Python packages.
 version=0.4.1
 author=Edmond Akello
 email=francenicklaus@gmail.com
 about=FloodDepth turns a satellite image of a flood (or a flood-extent layer)
-    and a DEM into a flood-depth map with uncertainty bands, in one click.
-    Every computation runs inside QGIS with NumPy and the GDAL bindings that
-    QGIS ships; it never starts another process and needs no pip install.
+    and a DEM into a flood-depth map with uncertainty bands and a printable
+    report. Every computation runs inside QGIS with NumPy and the GDAL
+    bindings that QGIS ships: no external executables, no pip install.
+
+    Find it under Raster > FloodDepth, on the Raster toolbar (one button) and
+    in the Processing Toolbox. The user guide is installed with the plugin
+    and opens from the menu and from every tool's Help button.
 
     Imagery: select the downloaded files as they are - Copernicus / EO
     Browser 'Raw' bands, Sentinel-2 SAFE, Landsat Collection 2, multiband
-    stacks, the Browser 'False color' product, Sentinel-1 VV/VH. Bands are
-    recognised from file names and metadata. MNDWI, NDWI or SAR backscatter
-    with a tile-based Otsu threshold and a separability score; implausible
-    thresholds are refused, not used. Permanent water from a pre-event image,
-    ESA WorldCover or JRC occurrence. Flood-trace mode maps vegetation lost
-    between two dates for floods that drained before the overpass, and
-    separates inundation from erosion / deposition evidence.
+    stacks, Sentinel-1 VV/VH. Water from NDWI + confident MNDWI (or SAR)
+    with an edge-based Otsu threshold; implausible thresholds are refused,
+    not used. Permanent water from a pre-event image, ESA WorldCover or JRC
+    occurrence. Flood-trace mode maps vegetation lost between two dates for
+    floods that drained before the overpass.
+
+    DEMs: FABDEM, Copernicus GLO-30, ALOS, TanDEM-X, the Google GEM 15 m DTM
+    or LiDAR, as one file or as tiles (only the cells under the area are
+    read). A Prepare DEM tool merges, clips and reprojects tiles with
+    bilinear resampling and checks them for resampling artefacts.
 
     Depth: the water surface from the terrain along the flood edge (FwDET
-    boundary method) with edges at NoData, cloud or permanent water
-    excluded, outlier screening and slope-aware smoothing; or from a HAND
-    raster; or from a known surface or level.
-
-    Uncertainty: a Monte Carlo ensemble with spatially correlated DEM error,
-    threshold and edge perturbation gives depth P10 / P50 / P90 and flood
-    probability; an evidence layer says what each flooded cell is based on.
-    Every run writes an HTML report with the decisions, statistics, warnings
-    and limitations. Terrain-based estimates, not a hydraulic model.
+    boundary method), or from a HAND raster. Uncertainty: a Monte Carlo
+    ensemble with correlated DEM error and extent perturbation gives depth
+    P10 / P50 / P90 and flood probability. Several image dates give the
+    maximum observed depth and the dates flooded. Terrain-based estimates,
+    not a hydraulic model.
 
     Licensed under the GNU General Public License version 3 or later.
 category=Raster
-tags=flood,flood depth,inundation,water,Sentinel-2,Sentinel-1,Landsat,NDWI,MNDWI,Otsu,DEM,HAND,FwDET,uncertainty,erosion,hydrology,processing
+tags=flood,flood depth,flood mapping,disaster,GEM,DTM,inundation,water,Sentinel-2,Sentinel-1,Landsat,NDWI,MNDWI,Otsu,DEM,HAND,FwDET,uncertainty,erosion,hydrology,processing
 icon=icon.svg
 experimental=True
 deprecated=False

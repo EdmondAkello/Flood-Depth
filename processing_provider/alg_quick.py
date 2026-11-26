@@ -2,12 +2,11 @@
 # FloodDepth - Licensed under the GNU General Public License v3 or later.
 """Quick flood depth: satellite image(s) or a flood extent + DEM -> depth."""
 
-import os
-
 from qgis.core import (
-    QgsProcessing,
+    Qgis,
     QgsProcessingException,
     QgsProcessingParameterBoolean,
+    QgsProcessingParameterColor,
     QgsProcessingParameterEnum,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterFolderDestination,
@@ -19,12 +18,15 @@ from qgis.core import (
     QgsProcessingOutputVectorLayer,
 )
 
+from qgis.PyQt.QtGui import QColor
+
 from .base import FloodDepthAlgorithm, RasterStyle
 
 MODES = ["water", "trace"]
 INDEXES = ["auto", "consensus", "ndwi", "mndwi", "sar"]
 METHODS = ["dem", "hand"]
 INTERP = ["idw", "nearest"]
+RAMPS = ["blues", "viridis", "ylgnbu", "magma"]
 
 
 class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
@@ -43,51 +45,56 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
 
     def shortHelpString(self):
         return (
-            "One click from a satellite image (or a flood-extent layer) and a DEM to flood depth, with "
-            "uncertainty bands and an HTML report.\n\n"
-            "<b>Image files.</b> Select the downloaded file(s) as they are: one multiband file or one file per "
-            "band (Copernicus / EO Browser 'Raw' B03, B08, B11 ..., Sentinel-2 SAFE, Landsat SR_B3 ...). Bands "
-            "are recognised from file names and band metadata. Sentinel-1 VV / VH (linear or dB) are thresholded "
-            "as dark water after a speckle filter. True-colour images and rendered SAR visualisations are refused with an explanation.\n\n"
-            "<b>Water at the overpass</b> (default) maps water with NDWI + confident MNDWI (or SAR) and an edge-based Otsu "
-            "threshold seeded at the physical value (0; -16 dB VV). <b>Flood trace</b> compares a pre-event and a post-event image and maps vegetation lost: "
-            "use it when the water drained before the overpass (flash floods, debris flows); the trace is split "
-            "into inundation and erosion / deposition evidence.\n\n"
-            "<b>Depth.</b> The water surface is the terrain elevation along the flood edge (waterline cells next "
-            "to dry ground; edges at NoData, cloud or permanent water are not used), screened for outliers, "
-            "allocated to the nearest edge and lightly smoothed (FwDET). depth = surface - DEM. With a HAND "
-            "raster the same is done on HAND (depth = edge HAND - HAND).\n\n"
-            "<b>Uncertainty.</b> A Monte Carlo ensemble with correlated DEM error, threshold and edge "
-            "perturbation gives depth P10 / P50 / P90 and the flood probability.\n\n"
-            "Outputs go to the output folder: water_mask.tif, flood_extent.gpkg, wse.tif, depth.tif, "
-            "evidence.tif, depth_p10/p50/p90.tif, flood_probability.tif, report.html, run.json.\n\n"
-            "These are terrain-based estimates, not a hydraulic model. Read the report's warnings.")
+            "From a satellite image (or a flood-extent layer) and a DEM to flood depth with uncertainty bands "
+            "and a report, in one run.\n\n"
+            "<b>1. Image.</b> Select the downloaded files as they are: Copernicus / EO Browser 'Raw' bands "
+            "(B03, B08, B11 ...), Sentinel-2 SAFE, Landsat SR_B3 ..., a multiband stack, or Sentinel-1 VV / VH. "
+            "Bands are recognised from file names and metadata. True-colour images and rendered SAR pictures "
+            "are refused with the reason. Or give a flood-extent polygon layer instead.\n\n"
+            "<b>2. DEM.</b> Any DEM GDAL reads: FABDEM, Copernicus GLO-30, ALOS, TanDEM-X, the Google GEM 15 m "
+            "DTM or LiDAR. Tiled DEMs: pick one tile as the DEM and the rest under 'More DEM tiles' (only the "
+            "cells under the image are read). Geographic DEMs are analysed in the local UTM zone.\n\n"
+            "<b>3. Optional.</b> A pre-event image removes permanent water (and is required for flood-trace "
+            "mode, which maps vegetation stripped by a flood that drained before the overpass). An area of "
+            "interest limits the run and makes it faster. Permanent-water layers (ESA WorldCover, JRC "
+            "occurrence, lakes) are excluded from the flood.\n\n"
+            "<b>Method.</b> Water from NDWI + confident MNDWI (or SAR backscatter) with an edge-based Otsu "
+            "threshold; implausible thresholds are refused. Depth = water surface - DEM, the surface taken from "
+            "the terrain along the flood edge (FwDET), or from a HAND raster. A Monte Carlo ensemble with "
+            "correlated DEM error and extent perturbation gives depth P10 / P50 / P90 and flood probability.\n\n"
+            "<b>Outputs</b> (output folder): depth.tif, flood_extent.gpkg, evidence.tif, wse.tif, "
+            "depth_p10/p50/p90.tif, flood_probability.tif, water_mask.tif, report.html (print it to PDF), "
+            "run.json.\n\n"
+            "Terrain-based estimates, not a hydraulic model: read the report's warnings.")
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterMultipleLayers(
-            "IMAGES", "Satellite image file(s) (post-event)", QgsProcessing.TypeRaster, optional=True))
+            "IMAGES", "Satellite image file(s) (post-event)", Qgis.ProcessingSourceType.Raster, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
             "EXTENT", "...or a flood-extent polygon layer instead of an image",
-            [QgsProcessing.TypeVectorPolygon], optional=True))
+            [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer("DEM", "DEM (terrain elevation)"))
+        self.addParameter(QgsProcessingParameterMultipleLayers(
+            "DEM_TILES", "More DEM tiles, mosaicked with the DEM (optional; e.g. Google GEM 15 m tiles)",
+            Qgis.ProcessingSourceType.Raster, optional=True))
+        self.addParameter(QgsProcessingParameterMultipleLayers(
+            "PRE_IMAGES", "Pre-event image file(s) (removes permanent water; required for flood trace)",
+            Qgis.ProcessingSourceType.Raster, optional=True))
         self.addParameter(QgsProcessingParameterEnum(
             "MODE", "What the image shows",
             ["Water at the overpass (ponding, standing flood)",
              "Flood trace after the water drained (needs a pre-event image)"], defaultValue=0))
-        self.addParameter(QgsProcessingParameterMultipleLayers(
-            "PRE_IMAGES", "Pre-event image file(s) (removes permanent water; required for flood trace)",
-            QgsProcessing.TypeRaster, optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "AOI", "Area of interest", [QgsProcessing.TypeVectorPolygon], optional=True))
-        self.addParameter(QgsProcessingParameterFeatureSource(
-            "SEEDS", "Keep only flooding connected to these features (river, road, reach)",
-            [QgsProcessing.TypeVectorAnyGeometry], optional=True))
+            "AOI", "Area of interest (faster: only this area is read)", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer(
             "PERM_RASTER", "Permanent water raster (ESA WorldCover, JRC occurrence or a water mask)",
             optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "PERM_POLYS", "Permanent water polygons (lakes, rivers)", [QgsProcessing.TypeVectorPolygon],
+            "PERM_POLYS", "Permanent water polygons (lakes, rivers)", [Qgis.ProcessingSourceType.VectorPolygon],
             optional=True))
+        self.addParameter(QgsProcessingParameterFeatureSource(
+            "SEEDS", "Keep only flooding connected to these features (river, road, reach)",
+            [Qgis.ProcessingSourceType.VectorAnyGeometry], optional=True))
         self.addParameter(QgsProcessingParameterEnum(
             "METHOD", "Depth method", ["Flood-edge elevation on the DEM (FwDET)",
                                        "Flood-edge height on a HAND raster"], defaultValue=0))
@@ -127,11 +134,21 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
         self.number("CORR", "DEM error correlation length (m)", "double", 150.0, 0.0, adv=True)
         self.number("ERO_SIGMA", "Extra terrain error in erosion / deposition cells (m)", "double", 1.0, 0.0, adv=True)
         self.number("RNG_SEED", "Random seed", "int", 42, 0, adv=True)
+        self.addParameter(self.advanced(QgsProcessingParameterEnum(
+            "DEPTH_RAMP", "Map colours: depth ramp", ["Blues", "Viridis", "Yellow-green-blue", "Magma"],
+            defaultValue=0)))
+        self.number("DEPTH_MAX", "Map colours: depth at the dark end of the ramp (m)", "double", 3.0, 0.1, 100.0,
+                    adv=True)
+        for key, label, default in (("COL_PERM", "permanent water", "#7850a0"),
+                                    ("COL_EDGE", "flood edge", "#08254e"),
+                                    ("COL_DOUBT", "doubtful cells (ground above the water surface)", "#e78ac3")):
+            self.addParameter(self.advanced(QgsProcessingParameterColor(
+                key, f"Map colours: {label}", defaultValue=QColor(default), opacityEnabled=False)))
         self.addParameter(self.advanced(QgsProcessingParameterBoolean(
             "LOAD_ALL", "Load every output (otherwise depth, extent and evidence)", defaultValue=False)))
         self.addParameter(QgsProcessingParameterFolderDestination("OUT_DIR", "Output folder"))
         self.addOutput(QgsProcessingOutputRasterLayer("DEPTH", "Flood depth"))
-        self.addOutput(QgsProcessingOutputVectorLayer("FLOOD_EXTENT", "Flood extent", QgsProcessing.TypeVectorPolygon))
+        self.addOutput(QgsProcessingOutputVectorLayer("FLOOD_EXTENT", "Flood extent", Qgis.ProcessingSourceType.VectorPolygon))
         self.addOutput(QgsProcessingOutputFile("REPORT", "Run report (HTML)"))
 
     def options(self, parameters, context, feedback):
@@ -160,6 +177,7 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
         out_dir = self.parameterAsString(parameters, "OUT_DIR", context)
         opt = QuickOptions(
             dem_path=self.raster_path(parameters, "DEM", context), out_dir=out_dir,
+            dem_tiles=self.raster_paths(parameters, "DEM_TILES", context),
             image_paths=images, pre_paths=self.raster_paths(parameters, "PRE_IMAGES", context), mode=mode,
             index=INDEXES[self.parameterAsEnum(parameters, "INDEX", context)], threshold=threshold,
             threshold_method=["edge", "tile", "global"][self.parameterAsEnum(parameters, "TMETHOD", context)],
@@ -187,28 +205,43 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             dem_sigma=self.parameterAsDouble(parameters, "DEM_SIGMA", context),
             dem_corr_m=self.parameterAsDouble(parameters, "CORR", context),
             erosion_sigma=self.parameterAsDouble(parameters, "ERO_SIGMA", context),
-            seed=self.parameterAsInt(parameters, "RNG_SEED", context))
+            seed=self.parameterAsInt(parameters, "RNG_SEED", context),
+            map_style=self.map_style(parameters, context))
         if method == "hand" and not opt.hand_path:
             raise QgsProcessingException("The HAND method needs a HAND raster.")
         if mode == "trace" and not opt.pre_paths:
             raise QgsProcessingException("Flood-trace mode needs the pre-event image file(s).")
         return opt
 
+    def map_style(self, parameters, context):
+        st = {"depth_ramp": RAMPS[self.parameterAsEnum(parameters, "DEPTH_RAMP", context)],
+              "depth_max": self.parameterAsDouble(parameters, "DEPTH_MAX", context)}
+        for key, name in (("COL_PERM", "permanent"), ("COL_EDGE", "edge"), ("COL_DOUBT", "doubtful")):
+            c = self.parameterAsColor(parameters, key, context)
+            if c is not None and c.isValid():
+                st[name] = c.name()
+        return st
+
+    def depth_style(self, opt):
+        from ..core.report import MapStyle
+        return RasterStyle("depth", MapStyle.from_dict(opt.map_style).depth_stops())
+
     def processAlgorithm(self, parameters, context, feedback):
         from ..core.pipeline import run_quick
+        from ..core.raster import RasterError
         opt = self.options(parameters, context, feedback)
         out_dir = opt.out_dir
         try:
             info = run_quick(opt, progress=self.progress(feedback), log=self.log(feedback))
         except QgsProcessingException:
             raise
-        except (ValueError, RuntimeError) as exc:
-            raise QgsProcessingException(str(exc))
+        except (ValueError, RuntimeError, RasterError, MemoryError) as exc:
+            raise QgsProcessingException(str(exc) or type(exc).__name__)
         for w in info.get("warnings", []):
             feedback.pushWarning(w)
         o = info["outputs"]
         load_all = self.parameterAsBoolean(parameters, "LOAD_ALL", context)
-        self.load_raster(context, o["depth"], "Flood depth (m)", RasterStyle("depth"))
+        self.load_raster(context, o["depth"], "Flood depth (m)", self.depth_style(opt))
         self.load_raster(context, o["evidence"], "Flood evidence", RasterStyle("palette"))
         self.load_vector(context, o["extent"] + "|layername=flood_extent", "Flood extent")
         if load_all:
@@ -216,7 +249,8 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
                                      ("p50", "Depth P50 (m)", "depth"), ("p90", "Depth P90 (m)", "depth"),
                                      ("prob", "Flood probability", "prob"), ("water_mask", "Water mask", "palette")):
                 if o.get(key):
-                    self.load_raster(context, o[key], name, RasterStyle(style) if style else None)
+                    rs = self.depth_style(opt) if style == "depth" else RasterStyle(style) if style else None
+                    self.load_raster(context, o[key], name, rs)
         d = info.get("depth", {})
         feedback.pushInfo(f"Flooded {d.get('area_km2', 0):.3f} km2, mean depth {d.get('mean_m', float('nan')):.2f} m, "
                           f"P90 {d.get('p90_m', float('nan')):.2f} m. Report: {o['report']}")

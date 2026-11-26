@@ -23,6 +23,8 @@ def main():
     w = U.correlated_noise((100, 100), 1.0, 0.0, rng)
     check("zero correlation length = white noise", abs(np.corrcoef(w[:, :-1].ravel(), w[:, 1:].ravel())[0, 1]) < 0.05)
     check("DEM preset from name: FABDEM 1.5 m", U.dem_sigma_from_name("nyando_fabdem.tif")[0] == 1.5)
+    check("DEM preset from name: Google GEM 15 m",
+          U.dem_sigma_from_name("kenya_gem15_dtm_EPSG_32737-0000032768-0000000000.tif")[1].startswith("Google GEM"))
     check("DEM preset unknown -> default with a note", U.dem_sigma_from_name("dem.tif")[1].startswith("unknown"))
     b = U.block_mean(np.arange(16, dtype="float32").reshape(4, 4), 2)
     check("block mean", b.tolist() == [[2.5, 4.5], [10.5, 12.5]])

@@ -88,6 +88,31 @@ cut to the image or extent; a geographic DEM (Copernicus, HAND) on the WGS 84 /
 UTM zone of the area at the DEM's resolution in metres. Masks move between
 grids by area fraction (≥ 0.5 = water by default).
 
+**Windowed reads.** Every raster (DEM, HAND, permanent water, image bands) is
+read only over the window that covers the grid it is warped to, plus two
+cells, so a national tile costs no more than a clip. With an area of interest
+the image is cropped to the area plus half its size on each side (enough
+context for the automatic threshold).
+
+**DEM tiles.** Several DEM files are combined with `gdal.BuildVRT` in
+`/vsimem` (nothing is copied). Tiles are grouped by CRS; the group covering
+the analysis extent best is used (ties: the UTM zone of the extent centre). The
+Google GEM 15 m DTM ships Kenya in four UTM zones (EPSG 32636, 32637, 32736,
+32737) with undeclared NaN NoData; NaN is NoData for every reader.
+
+**DEM check.** On the analysis grid (central 4 Mcells): rows or columns that
+repeat their neighbour over ≥ 99 % of their cells (≥ 0.2 % of rows or columns:
+nearest-neighbour resampling upstream), and the elevation storage step against
+the median change per cell on the flood (whole-metre steps on flat ground round
+the edge levels). The checks follow QEHT's DEM audit. *Prepare DEM* runs them on
+its output. No depression filling is done anywhere: it would raise the ground
+under ponded water.
+
+**Memory.** The run needs about 64 bytes per analysis cell (measured: 15 m vs
+30 m runs of the same Nyando scene). Before the DEM is read the estimate is
+compared with the free memory: a warning above half of it, a refusal with
+advice above 90 %.
+
 ## 3. Water classification
 
 **Index.** NDWI = (green − NIR) / (green + NIR) (McFeeters 1996) and MNDWI =
@@ -518,6 +543,26 @@ why). 16.7 km² of water on the floodplain within the scene; interior mean
 1.22 m, P90 3.06 m; DEM error is the largest term (σ assumed 2 m because the
 file name does not name the product — set it when known).
 
+### 9.5 Google GEM 15 m DTM (`benchmarks/dem_gem15.py`)
+
+The truth of § 9.3 (valley-trend surface on FABDEM, 10 % and 25 % flooded),
+depth estimated on ALOS, TanDEM-X and GEM warped to the same 30 m grid
+(`docs/validation/dem_gem15.json`):
+
+| Site, flooded | ALOS bias / MAE (m) | TanDEM-X bias / MAE (m) | GEM bias / MAE (m) |
+|---|---|---|---|
+| Nyando, 10 % | +0.46 / 1.23 | +0.62 / 1.24 | +0.38 / 1.23 |
+| Nyando, 25 % | +0.76 / 1.21 | +0.95 / 1.27 | +0.82 / 1.36 |
+| Mai Mahiu, 10 % | +0.89 / 4.08 | +0.80 / 3.92 | −0.16 / 3.79 |
+| Mai Mahiu, 25 % | +1.06 / 6.01 | +0.92 / 5.84 | +0.14 / 5.56 |
+
+GEM sits 3.2 m (Nyando) and 2.8 m (Mai Mahiu) above FABDEM on average (SD of
+the difference 1.3 m and 3.8 m); a uniform offset does not change depths. Its
+error in this test is close to the 30 m surface models'. The benefit of the
+15 m cell (narrow channels, embankments) is not measured by a test whose truth
+lives on a 30 m DEM. The GEM DEM-error preset is 2.0 m, as for GLO-30 and
+TanDEM-X, pending an independent check.
+
 ## 10. Limitations and good practice
 
 * **Not a hydraulic model.** No flow, velocity, timing, backwater, or
@@ -544,9 +589,13 @@ file name does not name the product — set it when known).
   method. Vectors cross the boundary as WKT + CRS WKT, rasters as file paths.
 * No subprocess, no pip dependency: NumPy and the GDAL / OGR bindings shipped
   with QGIS. GDAL C++ routines used: Warp, FillNodata, ComputeProximity,
-  Polygonize, RasterizeLayer. FillNodata's search stops at twice the farthest
-  flood cell's distance to its waterline (+10 cells): its cost grows with the
-  search distance for every cell of the window.
+  Polygonize, RasterizeLayer, BuildVRT. FillNodata's search stops at twice the
+  farthest flood cell's distance to its waterline (+10 cells): its cost grows
+  with the search distance for every cell of the window. It runs separately on
+  each group of flood clusters (64-cell blocks, boxes padded by the search
+  distance and merged when they overlap), so the dry ground between distant
+  patches is not filled; every known cell a target can reach is in its box, so
+  the result equals one call over the whole window.
 * **Optional SciPy** (`core/accel.py`): when SciPy is importable (most QGIS
   installs ship it) connected components, box filters, the nearest-edge
   transform and the FFT use `scipy.ndimage` / `scipy.fft`; otherwise the
@@ -558,8 +607,12 @@ file name does not name the product — set it when known).
   `compute_constant_stage_depth`).
 * Copernicus Browser 'Raw' Sentinel-1 in UINT16 is linear backscatter × 65535
   and is read as such (it was read as dB before 0.4.2 and no water was found).
+* Report look (`core/style.py`) shared with the LandXML Road & Terrain GIS
+  Tools reports; map colours in `report.MapStyle`.
 * Tests: `tools/dev/ci_pure.sh` (pure suites), `tests/qgis_smoke.py` (every tool
-  through Processing on a synthetic site with a known answer). Benchmarks
+  through Processing on a synthetic site with a known answer, and the plugin
+  shell), `tools/dev/run_tests.sh` (flake8, Bandit, both, on QGIS 3.44 and 4.2
+  in Docker). Benchmarks
   (`benchmarks/`) are in the repository but not in the plugin zip.
 
 ## 12. References

@@ -21,7 +21,6 @@ HAND tiles from the AWS open-data buckets).
 """
 
 import json
-import math
 import os
 import sys
 import time

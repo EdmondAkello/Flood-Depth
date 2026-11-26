@@ -51,6 +51,8 @@ All steps are whole-array NumPy or GDAL calls: there is no per-cell
 Python loop.
 """
 
+import math
+
 import numpy as np
 
 from . import raster as R
@@ -267,6 +269,63 @@ def fill_from_points(values, known, grid, max_search=None, smoothing_iterations=
     return out
 
 
+def _block_any(mask, block):
+    rows, cols = mask.shape
+    br, bc = -(-rows // block), -(-cols // block)
+    pad = np.zeros((br * block, bc * block), bool)
+    pad[:rows, :cols] = mask
+    return pad.reshape(br, block, bc, block).any(axis=(1, 3))
+
+
+def fill_regions(values, known, targets, grid, max_search, block=64, max_share=0.6):
+    """fill_from_points, run separately on each group of flood clusters.
+
+    FillNodata fills every unknown cell of its grid, so on a scene with
+    scattered flood patches most of its time went to dry ground nobody
+    reads. Here the targets are grouped by 64-cell blocks, each group's box
+    is padded by the search distance (so every known cell a target can reach
+    is inside it: the result equals the single call), overlapping boxes are
+    merged, and only the boxes are filled. Falls back to one call when the
+    boxes would cover more than `max_share` of the grid."""
+    rows, cols = values.shape
+    if max_search is None or not targets.any():
+        return fill_from_points(values, known, grid, max_search=max_search)
+    from . import classify as C
+    ms = int(math.ceil(max_search)) + 1
+    lab, n = C.label_components(_block_any(targets, block))
+    boxes = []
+    for i in range(1, n + 1):
+        br, bc = np.nonzero(lab == i)
+        boxes.append([max(0, br.min() * block - ms), max(0, bc.min() * block - ms),
+                      min(rows, (br.max() + 1) * block + ms), min(cols, (bc.max() + 1) * block + ms)])
+    merged = True
+    while merged and len(boxes) > 1:
+        merged = False
+        out = []
+        for b in boxes:
+            for o in out:
+                if b[0] < o[2] and o[0] < b[2] and b[1] < o[3] and o[1] < b[3]:
+                    o[:] = [min(o[0], b[0]), min(o[1], b[1]), max(o[2], b[2]), max(o[3], b[3])]
+                    merged = True
+                    break
+            else:
+                out.append(list(b))
+        boxes = out
+    if sum((b[2] - b[0]) * (b[3] - b[1]) for b in boxes) > max_share * rows * cols:
+        return fill_from_points(values, known, grid, max_search=max_search)
+    res = np.full(values.shape, np.nan, dtype="float32")
+    for r0, c0, r1, c1 in boxes:
+        w = (slice(r0, r1), slice(c0, c1))
+        t = targets[w]
+        if not t.any():
+            continue
+        sub = R.Grid(c1 - c0, r1 - r0, (grid.gt[0] + c0 * grid.gt[1], grid.gt[1], 0.0,
+                                        grid.gt[3] + r0 * grid.gt[5], 0.0, grid.gt[5]), grid.wkt)
+        f = fill_from_points(values[w], known[w], sub, max_search=max_search)
+        res[w] = np.where(t, f, res[w])
+    return res
+
+
 def estimate_surface(elev, flood, valid, grid, other_water=None, blocked=None,
                      outlier_radius=15, outlier_k=3.0, outlier_min=0.5,
                      smooth_radius=2, smooth_tolerance=0.5, interpolation="idw",
@@ -338,11 +397,11 @@ def estimate_surface(elev, flood, valid, grid, other_water=None, blocked=None,
     win = (slice(r0, r1), slice(c0, c1))
     e_w, k_w, f_w = elev[win], keep[win], flood[win]
     if interpolation == "idw":
-        sub = R.Grid(c1 - c0, r1 - r0, (grid.gt[0] + c0 * grid.gt[1], grid.gt[1], 0.0,
-                                         grid.gt[3] + r0 * grid.gt[5], 0.0, grid.gt[5]), grid.wkt)
+        gt = (grid.gt[0] + c0 * grid.gt[1], grid.gt[1], 0.0, grid.gt[3] + r0 * grid.gt[5], 0.0, grid.gt[5])
+        sub = R.Grid(c1 - c0, r1 - r0, gt, grid.wkt)
         ms = max_search_cells if max_search_cells else search_distance(k_w, f_w)
         info["search_cells"] = ms
-        s_w = fill_from_points(e_w, k_w, sub, max_search=ms)
+        s_w = fill_regions(e_w, k_w, f_w, sub, ms)
     else:
         s_w, dist = fill_nearest(e_w, k_w, grid.cell_x, grid.cell_y, targets=f_w)
         info["max_distance_to_waterline_m"] = float(np.max(dist[f_w])) if f_w.any() else 0.0

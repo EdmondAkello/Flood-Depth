@@ -18,14 +18,15 @@ from .alg_supervised import SupervisedWaterAlgorithm
 from .alg_surface import SurfaceFromExtentAlgorithm
 from .alg_depth import DepthFromSurfaceAlgorithm, DepthConstantLevelAlgorithm
 from .alg_compare import CompareExtentsAlgorithm
+from .alg_prepare_dem import PrepareDemAlgorithm
 
 
 class FloodDepthProvider(QgsProcessingProvider):
 
     def loadAlgorithms(self):
-        for alg in (QuickFloodDepthAlgorithm(), FloodSeriesAlgorithm(), ClassifyWaterAlgorithm(), SupervisedWaterAlgorithm(),
-                    SurfaceFromExtentAlgorithm(), DepthFromSurfaceAlgorithm(), DepthConstantLevelAlgorithm(),
-                    CompareExtentsAlgorithm()):
+        for alg in (QuickFloodDepthAlgorithm(), FloodSeriesAlgorithm(), PrepareDemAlgorithm(),
+                    ClassifyWaterAlgorithm(), SupervisedWaterAlgorithm(), SurfaceFromExtentAlgorithm(),
+                    DepthFromSurfaceAlgorithm(), DepthConstantLevelAlgorithm(), CompareExtentsAlgorithm()):
             self.addAlgorithm(alg)
 
     def id(self):

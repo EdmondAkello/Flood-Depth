@@ -4,7 +4,7 @@
 
 import numpy as np
 from qgis.core import (
-    QgsProcessing,
+    Qgis,
     QgsProcessingException,
     QgsProcessingParameterFeatureSource,
     QgsProcessingParameterRasterDestination,
@@ -20,9 +20,9 @@ def _dem_grid_and_extent(alg, parameters, context, feedback, dem_path):
     if wkts:
         from ..core.pipeline import _wkts_bounds
         ext, ew = _wkts_bounds(wkts, wcrs, pad_frac=0.05)
-        grid, notes = R.analysis_grid(dem_path, ext, ew)
+        grid, notes = R.analysis_grid(dem_path, ext, ew, max_cells=R.MAX_CELLS)
     else:
-        grid, notes = R.analysis_grid(dem_path)
+        grid, notes = R.analysis_grid(dem_path, max_cells=R.MAX_CELLS)
     for n in notes:
         feedback.pushInfo(n)
     return grid, wkts, wcrs
@@ -52,7 +52,7 @@ class DepthFromSurfaceAlgorithm(FloodDepthAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer("DEM", "DEM"))
         self.addParameter(QgsProcessingParameterRasterLayer("STAGE", "Water-surface elevation raster"))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "EXTENT", "Flood extent (optional)", [QgsProcessing.TypeVectorPolygon], optional=True))
+            "EXTENT", "Flood extent (optional)", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination("OUTPUT", "Flood depth"))
 
     def processAlgorithm(self, parameters, context, feedback):
@@ -103,7 +103,7 @@ class DepthConstantLevelAlgorithm(FloodDepthAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer("DEM", "DEM"))
         self.number("LEVEL", "Water level (DEM vertical units)", "double", 0.0)
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "EXTENT", "Flood extent (optional)", [QgsProcessing.TypeVectorPolygon], optional=True))
+            "EXTENT", "Flood extent (optional)", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterRasterDestination("OUTPUT", "Flood depth"))
 
     def processAlgorithm(self, parameters, context, feedback):

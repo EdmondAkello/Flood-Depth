@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import numpy as np
 
 SENTINEL_ABS = 1e30
+MAX_CELLS = 200_000_000   # analysis grids above this need an area of interest
 
 
 def _gdal():
@@ -176,21 +177,70 @@ def data_band_count(ds):
     return ds.RasterCount - (1 if a else 0)
 
 
-def read_band(path, band=1, ds=None, zero_nodata_auto=False):
+def pixel_window(ds, bounds, bounds_wkt=None, pad=2):
+    """The pixel window of `ds` covering `bounds` (in `bounds_wkt`, default the
+    raster's CRS) plus `pad` cells, as (xoff, yoff, xsize, ysize, Grid), or
+    None when the window is the whole raster. Lets a 30 000 x 30 000 DEM
+    tile be read only where the analysis grid lies."""
+    g = grid_of(ds)
+    try:
+        b = transform_bounds(bounds, bounds_wkt or g.wkt, g.wkt) if bounds_wkt else tuple(bounds)
+    except RasterError:
+        return None
+    c0 = int(math.floor((b[0] - g.gt[0]) / g.gt[1])) - pad
+    c1 = int(math.ceil((b[2] - g.gt[0]) / g.gt[1])) + pad
+    r0 = int(math.floor((b[3] - g.gt[3]) / g.gt[5])) - pad
+    r1 = int(math.ceil((b[1] - g.gt[3]) / g.gt[5])) + pad
+    c0, r0 = max(0, c0), max(0, r0)
+    c1, r1 = min(g.cols, c1), min(g.rows, r1)
+    if c1 - c0 < 1 or r1 - r0 < 1:
+        raise RasterError(f"{ds.GetDescription()} does not overlap the analysis area.")
+    if c0 == 0 and r0 == 0 and c1 == g.cols and r1 == g.rows:
+        return None
+    sub = Grid(c1 - c0, r1 - r0, (g.gt[0] + c0 * g.gt[1], g.gt[1], 0.0,
+                                  g.gt[3] + r0 * g.gt[5], 0.0, g.gt[5]), g.wkt)
+    return c0, r0, c1 - c0, r1 - r0, sub
+
+
+def crop_grid(grid, bounds, bounds_wkt=None):
+    """`grid` cut to `bounds` (snapped to its own lattice); `grid` itself when
+    the bounds cover it or do not overlap it."""
+    try:
+        b = transform_bounds(bounds, bounds_wkt, grid.wkt) if bounds_wkt else tuple(bounds)
+    except RasterError:
+        return grid
+    c0 = max(0, int(math.floor((b[0] - grid.gt[0]) / grid.gt[1])))
+    c1 = min(grid.cols, int(math.ceil((b[2] - grid.gt[0]) / grid.gt[1])))
+    r0 = max(0, int(math.floor((b[3] - grid.gt[3]) / grid.gt[5])))
+    r1 = min(grid.rows, int(math.ceil((b[1] - grid.gt[3]) / grid.gt[5])))
+    if c1 - c0 < 3 or r1 - r0 < 3 or (c0, r0, c1, r1) == (0, 0, grid.cols, grid.rows):
+        return grid
+    return Grid(c1 - c0, r1 - r0, (grid.gt[0] + c0 * grid.gt[1], grid.gt[1], 0.0,
+                                   grid.gt[3] + r0 * grid.gt[5], 0.0, grid.gt[5]), grid.wkt)
+
+
+def read_band(path, band=1, ds=None, zero_nodata_auto=False, bounds=None, bounds_wkt=None):
     """(float32 array with NaN for invalid cells, Grid, notes list).
 
     zero_nodata_auto: for elevation rasters with no declared NoData, treat
     exact zeros as NoData when they cover > 0.5 % of the grid and every
-    other value is above 50 (a DEM clipped with 0 fill, a common export)."""
+    other value is above 50 (a DEM clipped with 0 fill, a common export).
+    bounds (+ bounds_wkt): read only the window covering them; the Grid
+    returned is that window's."""
     ds = ds or open_dataset(path)
     if band < 1 or band > ds.RasterCount:
         raise RasterError(f"{path} has {ds.RasterCount} band(s); band {band} does not exist.")
     b = ds.GetRasterBand(band)
+    win = pixel_window(ds, bounds, bounds_wkt) if bounds is not None else None
+    region = win[:4] if win else ()
     try:
         with quiet():
-            arr = b.ReadAsArray()
+            arr = b.ReadAsArray(*region)
     except RuntimeError as exc:
         raise RasterError(f"Could not read band {band} of {path} (file damaged or truncated?): {exc}")
+    except MemoryError:
+        raise RasterError(f"{path} is too large to read at once ({ds.RasterXSize:,} x {ds.RasterYSize:,} cells). "
+                          "Give an area of interest.")
     arr = arr.astype("float32")
     notes = []
     nd = b.GetNoDataValue()
@@ -204,7 +254,7 @@ def read_band(path, band=1, ds=None, zero_nodata_auto=False):
     ai = alpha_band_index(ds)
     if ai and ai != band:
         with quiet():
-            alpha = ds.GetRasterBand(ai).ReadAsArray()
+            alpha = ds.GetRasterBand(ai).ReadAsArray(*region)
         invalid |= alpha == 0
         notes.append(f"band {ai} used as the data mask (alpha).")
     if zero_nodata_auto and nd is None:
@@ -215,7 +265,7 @@ def read_band(path, band=1, ds=None, zero_nodata_auto=False):
             notes.append(f"no NoData value declared; {int(z.sum()):,} cells of exactly 0 (all other "
                          f"values >= {float(rest.min()):.0f}) treated as NoData.")
     arr[invalid] = np.nan
-    return arr, grid_of(ds), notes
+    return arr, (win[4] if win else grid_of(ds)), notes
 
 
 def band_info(path):
@@ -419,7 +469,8 @@ def warp_file(path, band, grid, resample="average"):
 
 def read_on_grid(path, grid, band=1, resample="bilinear", zero_nodata_auto=False):
     """Read one band, mask it, and warp it onto `grid`. Returns (array, notes)."""
-    arr, g, notes = read_band(path, band, zero_nodata_auto=zero_nodata_auto)
+    arr, g, notes = read_band(path, band, zero_nodata_auto=zero_nodata_auto, bounds=grid.bounds,
+                              bounds_wkt=grid.wkt)
     return warp_array(arr, g, grid, resample), notes
 
 

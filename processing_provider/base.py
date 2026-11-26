@@ -10,29 +10,27 @@ handed to the core as file paths (rasters) or WKT + CRS WKT (vectors).
 import os
 
 from qgis.core import (
+    Qgis,
     QgsProcessingAlgorithm,
     QgsProcessingException,
     QgsProcessingParameterNumber,
 )
 
 
+GUIDE_SECTIONS = {"quickflooddepth": "quick", "flooddepthseries": "series", "preparedem": "prepare",
+                  "classify_inundation": "steps", "supervisedwater": "steps", "estimate_stage_dem_boundary": "steps",
+                  "compute_flood_depth": "steps", "compute_constant_stage_depth": "steps",
+                  "compareextents": "compare"}
+
+
 def _number_type(kind):
-    """Integer / Double parameter type on QGIS 3.28 - 4."""
-    try:
-        from qgis.core import Qgis
-        t = Qgis.ProcessingNumberParameterType
-        return t.Integer if kind == "int" else t.Double
-    except AttributeError:
-        t = QgsProcessingParameterNumber
-        return t.Integer if kind == "int" else t.Double
+    """Integer / Double parameter type (QGIS 3.36+ enum names)."""
+    t = Qgis.ProcessingNumberParameterType
+    return t.Integer if kind == "int" else t.Double
 
 
 def _crs_wkt(crs):
-    try:
-        from qgis.core import QgsCoordinateReferenceSystem
-        return crs.toWkt(QgsCoordinateReferenceSystem.WKT_PREFERRED_GDAL)
-    except (AttributeError, TypeError):
-        return crs.toWkt()
+    return crs.toWkt(Qgis.CrsWktVariant.PreferredGdal)
 
 
 class FloodDepthAlgorithm(QgsProcessingAlgorithm):
@@ -48,19 +46,22 @@ class FloodDepthAlgorithm(QgsProcessingAlgorithm):
         return type(self)()
 
     def helpUrl(self):
+        """The section of the user guide installed with the plugin (offline); GitHub when it is missing."""
+        anchor = GUIDE_SECTIONS.get(self.name(), "")
+        guide = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "help", "user-guide.html")
+        if os.path.exists(guide):
+            from qgis.PyQt.QtCore import QUrl
+            url = QUrl.fromLocalFile(guide)
+            if anchor:
+                url.setFragment(anchor)
+            return url.toString()
         return "https://github.com/EdmondAkello/Flood-Depth/blob/main/DOCUMENTATION.md"
 
     # -- parameters ---------------------------------------------------
 
     def advanced(self, param):
-        """Mark a parameter as advanced (QGIS 3.28 - 4)."""
-        try:
-            from qgis.core import Qgis
-            flag = Qgis.ProcessingParameterFlag.Advanced
-        except AttributeError:
-            from qgis.core import QgsProcessingParameterDefinition
-            flag = QgsProcessingParameterDefinition.FlagAdvanced
-        param.setFlags(param.flags() | flag)
+        """Mark a parameter as advanced."""
+        param.setFlags(param.flags() | Qgis.ProcessingParameterFlag.Advanced)
         return param
 
     def number(self, key, label, kind="double", default=0.0, minimum=None, maximum=None,
@@ -154,9 +155,15 @@ class RasterStyle(object):
 
     _keep = []   # post-processors must outlive the algorithm call
 
-    def __init__(self, kind):
+    def __init__(self, kind, stops=None):
+        """stops: [(value, (r, g, b) or '#hex'), ...] to override the default ramp."""
         from qgis.core import QgsProcessingLayerPostProcessorInterface
-        stops = {"depth": self.DEPTH, "prob": self.PROB}.get(kind)
+        if stops:
+            stops = [(v, c if isinstance(c, str) else "#{:02x}{:02x}{:02x}".format(*c), f"{round(v, 2):g}")
+                     for v, c in stops]
+            stops[-1] = (stops[-1][0], stops[-1][1], stops[-1][2] + "+")
+        else:
+            stops = {"depth": self.DEPTH, "prob": self.PROB}.get(kind)
 
         class _P(QgsProcessingLayerPostProcessorInterface):
             def postProcessLayer(self, layer, context, feedback):
@@ -167,11 +174,7 @@ class RasterStyle(object):
                                            QgsSingleBandPseudoColorRenderer)
                     from qgis.PyQt.QtGui import QColor
                     shader = QgsColorRampShader(stops[0][0], stops[-1][0])
-                    try:
-                        shader.setColorRampType(QgsColorRampShader.Interpolated)
-                    except AttributeError:
-                        from qgis.core import Qgis
-                        shader.setColorRampType(Qgis.ShaderInterpolationMethod.Linear)
+                    shader.setColorRampType(Qgis.ShaderInterpolationMethod.Linear)
                     shader.setColorRampItemList([QgsColorRampShader.ColorRampItem(v, QColor(c), lab)
                                                  for v, c, lab in stops])
                     rs = QgsRasterShader()
