@@ -108,6 +108,24 @@ def main():
     m, rule = permanent_from_raster(np.array([[1.0, 2.0, 5.0]]), "2,5")
     check("explicit class list", m.tolist() == [[False, True, True]])
 
+    print("\n6. Flood polygons are valid geometries (8-connected corners)")
+    from osgeo import ogr
+    from ..core import raster as R, vector as V
+    m = np.zeros((20, 20), bool)
+    m[2:8, 2:8] = True
+    m[8:14, 8:14] = True          # touches the first block at one corner only
+    m[4:6, 4:6] = False           # a hole
+    g = R.Grid(20, 20, (500000, 10, 0, 9900000, 0, -10), R.srs_from_epsg(32737).ExportToWkt())
+    path = os.path.join(d, "poly.gpkg")
+    n = V.polygonize(m, g, path)
+    ds = ogr.Open(path)
+    feats = list(ds.GetLayer())
+    check("corner-touching regions written as valid polygons",
+          n >= 1 and all(f.GetGeometryRef().IsValid() for f in feats), f"{n} polygon(s)")
+    area = sum(f.GetGeometryRef().GetArea() for f in feats)
+    check("polygon area equals the mask area", abs(area - m.sum() * 100.0) < 1e-6, f"{area:.0f} m2")
+    ds = None
+
 
 if __name__ == "__main__":
     main()
