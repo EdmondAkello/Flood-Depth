@@ -106,7 +106,7 @@ def test_scene_scale():
     import tempfile
     import numpy as np
     from osgeo import gdal
-    from ..core import imagery as I, raster as R
+    from ..core import imagery as IMG, raster as R
     d = tempfile.mkdtemp()
     rng = np.random.default_rng(1)
     vals = {"B02": 2200, "B03": 4200, "B04": 3000, "B08": 20000, "B11": 14000}
@@ -120,11 +120,11 @@ def test_scene_scale():
         ds.GetRasterBand(1).WriteArray((v * rng.uniform(0.5, 1.6, (60, 60))).astype("uint16"))
         ds = None
         paths.append(p)
-    sc = I.scene_from_paths(paths)
+    sc = IMG.scene_from_paths(paths)
     g = R.grid_of(R.open_dataset(paths[0]))
-    cl = I.bright_cloud(sc, g, 0.25, [])
+    cl = IMG.bright_cloud(sc, g, 0.25, [])
     check("blue in a x 65535 export is not cloud", cl is not None and cl.mean() == 0.0, f"{cl.mean():.2f}")
-    check("scene p99 taken from the brightest band", I.scene_p99(sc) > 12000)
+    check("scene p99 taken from the brightest band", IMG.scene_p99(sc) > 12000)
 
 
 def test_sar_uint16():
@@ -135,7 +135,7 @@ def test_sar_uint16():
     import tempfile
     import numpy as np
     from osgeo import gdal
-    from ..core import imagery as I, raster as R
+    from ..core import imagery as IMG, raster as R
     d = tempfile.mkdtemp()
     rng = np.random.default_rng(2)
     water = np.zeros((80, 80), bool)
@@ -151,7 +151,7 @@ def test_sar_uint16():
         ds.GetRasterBand(2).WriteArray(np.ones((80, 80), "uint16"))
         ds = None
         paths.append(p)
-    r = I.classify_image(paths)
+    r = IMG.classify_image(paths)
     t = r["info"]["threshold"]["threshold"]
     share = r["info"]["water_share"]
     check("threshold in the SAR water range (dB)", -26 < t < -10, f"{t:.1f} dB")

@@ -5,7 +5,7 @@
 import os
 
 from qgis.core import (
-    QgsProcessing,
+    Qgis,
     QgsProcessingException,
     QgsProcessingParameterEnum,
     QgsProcessingParameterFeatureSource,
@@ -54,12 +54,12 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterMultipleLayers(
-            "IMAGES", "Satellite image file(s)", QgsProcessing.TypeRaster))
+            "IMAGES", "Satellite image file(s)", Qgis.ProcessingSourceType.Raster))
         self.addParameter(QgsProcessingParameterEnum(
             "MODE", "What the image shows", ["Water at the overpass", "Flood trace (needs a pre-event image)"],
             defaultValue=0))
         self.addParameter(QgsProcessingParameterMultipleLayers(
-            "PRE_IMAGES", "Pre-event image file(s)", QgsProcessing.TypeRaster, optional=True))
+            "PRE_IMAGES", "Pre-event image file(s)", Qgis.ProcessingSourceType.Raster, optional=True))
         self.addParameter(QgsProcessingParameterEnum(
             "INDEX", "Water index", ["Automatic", "NDWI + confident MNDWI (green, NIR, SWIR1)",
                                      "NDWI (green, NIR)", "MNDWI (green, SWIR1)", "SAR backscatter (VV / VH)"], defaultValue=0))
@@ -74,15 +74,15 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
                            ("B_BLUE", "blue")):
             self.number(key, f"Band number of {label} (0 = automatic)", "int", 0, 0, 500, adv=True)
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "SEEDS", "Keep only water connected to these features", [QgsProcessing.TypeVectorAnyGeometry],
+            "SEEDS", "Keep only water connected to these features", [Qgis.ProcessingSourceType.VectorAnyGeometry],
             optional=True))
         self.number("SEED_BUFFER", "Connection distance (map units of the image)", "double", 0.0, 0.0, adv=True)
         self.addParameter(QgsProcessingParameterRasterDestination("MASK", "Water mask"))
         self.addParameter(QgsProcessingParameterVectorDestination(
-            "POLYGONS", "Water polygons", QgsProcessing.TypeVectorPolygon))
+            "POLYGONS", "Water polygons", Qgis.ProcessingSourceType.VectorPolygon))
 
     def processAlgorithm(self, parameters, context, feedback):
-        from ..core import imagery as I, raster as R, vector as V, classify as C
+        from ..core import imagery as IMG, raster as R, vector as V, classify as C
         images = self.raster_paths(parameters, "IMAGES", context)
         if not images:
             raise QgsProcessingException("Select at least one image file.")
@@ -97,7 +97,7 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
         if mode == "trace" and not pre:
             raise QgsProcessingException("Flood-trace mode needs the pre-event image file(s).")
         try:
-            res = I.classify_image(
+            res = IMG.classify_image(
                 images, overrides, INDEXES[self.parameterAsEnum(parameters, "INDEX", context)], threshold,
                 ["edge", "tile", "global"][self.parameterAsEnum(parameters, "TMETHOD", context)],
                 self.parameterAsInt(parameters, "MIN_WATER", context),
@@ -127,15 +127,15 @@ class ClassifyWaterAlgorithm(FloodDepthAlgorithm):
         for n in info.get("notes", []):
             feedback.pushWarning(n)
         out = self.parameterAsOutputLayer(parameters, "MASK", context)
-        R.write_raster(out, I.mask_raster_values(water, res["valid"], res["permanent"]), res["grid"], 255, "Byte",
+        R.write_raster(out, IMG.mask_raster_values(water, res["valid"], res["permanent"]), res["grid"], 255, "Byte",
                        tags={"VALUES": "1 flood water, 2 permanent water, 0 dry, 255 NoData",
                              "INDEX": info["index"], "THRESHOLD": t["threshold"]},
-                       color_table=I.MASK_COLORS)
+                       color_table=IMG.MASK_COLORS)
         vout = self.parameterAsOutputLayer(parameters, "POLYGONS", context)
         flood = water if res["permanent"] is None else (water & ~res["permanent"])
         if vout.lower().endswith(".gpkg") and os.path.exists(vout):
             os.remove(vout)
-        n = V.polygonize(flood, res["grid"], vout, "water", {"index": info["index_key"],
-                                                            "threshold": float(t["threshold"])})
+        n = V.polygonize(flood, res["grid"], vout, "water",
+                         {"index": info["index_key"], "threshold": float(t["threshold"])})
         feedback.pushInfo(f"{n} polygon(s) written.")
         return {"MASK": out, "POLYGONS": vout}

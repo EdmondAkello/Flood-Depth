@@ -65,6 +65,58 @@ def _true_depth_on(path):
     return a, np.where(~lake & (wse > z), wse - z, np.nan)
 
 
+class _FakeIface(object):
+    """The parts of QgisInterface the plugin shell uses."""
+
+    def __init__(self):
+        from qgis.PyQt.QtWidgets import QMainWindow, QToolBar
+        self.window = QMainWindow()
+        self.toolbar = QToolBar(self.window)
+        self.menu = {}
+
+    def mainWindow(self):
+        return self.window
+
+    def addPluginToRasterMenu(self, name, action):
+        self.menu.setdefault(name, []).append(action)
+
+    def removePluginRasterMenu(self, name, action):
+        self.menu.get(name, []).remove(action)
+
+    def addRasterToolBarIcon(self, action):
+        self.toolbar.addAction(action)
+
+    def removeRasterToolBarIcon(self, action):
+        self.toolbar.removeAction(action)
+
+    def rasterToolBar(self):
+        return self.toolbar
+
+
+def _shell_checks(prov):
+    import time
+    from qgis.core import QgsApplication
+    QgsApplication.processingRegistry().removeProvider(prov)
+    t = time.time()
+    from .. import classFactory
+    iface = _FakeIface()
+    plugin = classFactory(iface)
+    plugin.initGui()
+    dt = time.time() - t
+    texts = [a.text() for a in iface.menu.get("&FloodDepth", [])]
+    check("Raster > FloodDepth menu lists the tools and the guide",
+          texts[:3] == ["Quick Flood Depth…", "Flood Depth over Time…", "Prepare DEM…"] and texts[-1] == "User Guide",
+          " | ".join(texts))
+    acts = iface.toolbar.actions()
+    check("one toolbar button with a drop-down", len(acts) == 1 and acts[0].menu() is not None)
+    check("plugin loads in under 1 s", dt < 1.0, f"{dt * 1000:.0f} ms")
+    check("guide ships with the plugin", os.path.exists(os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "help", "user-guide.html")))
+    plugin.unload()
+    check("unload removes menu, button and provider", not iface.menu.get("&FloodDepth") and
+          not iface.toolbar.actions() and QgsApplication.processingRegistry().providerById("flooddepth") is None)
+
+
 def main(in_qgis=False):
     app = None if in_qgis else _start_qgis()
     import processing
@@ -75,7 +127,7 @@ def main(in_qgis=False):
     QgsApplication.processingRegistry().addProvider(prov)
     ids = sorted(a.id() for a in prov.algorithms())
     print("\n1. Provider")
-    check("8 algorithms registered", len(ids) == 8, ", ".join(ids))
+    check("9 algorithms registered", len(ids) == 9, ", ".join(ids))
     for old in ("flooddepth:classify_inundation", "flooddepth:compute_flood_depth",
                 "flooddepth:compute_constant_stage_depth", "flooddepth:estimate_stage_dem_boundary"):
         check(f"0.3 id kept: {old}", old in ids)
@@ -85,7 +137,7 @@ def main(in_qgis=False):
     post = S.write_s2_raw(os.path.join(tmp, "post"), "2024-05-05", flooded=True)
     pre = S.write_s2_raw(os.path.join(tmp, "pre"), "2024-04-07", flooded=False, seed=2)
     ext = S.write_vector(os.path.join(tmp, "extent.gpkg"), [S.flood_polygon_wkt()])
-    line = S.write_vector(os.path.join(tmp, "river.gpkg"), [S.centreline_wkt()], "line")
+    S.write_vector(os.path.join(tmp, "river.gpkg"), [S.centreline_wkt()], "line")
 
     print("\n2. Quick flood depth from the image files (pre-event removes the lake)")
     out = os.path.join(tmp, "quick")
@@ -157,8 +209,8 @@ def main(in_qgis=False):
     r6 = processing.run("flooddepth:compute_constant_stage_depth", {"DEM": dem, "LEVEL": 1199.0,
                                                                     "OUTPUT": os.path.join(tmp, "depth5.tif")})
     a6, _, _ = _read(r6["OUTPUT"])
-    check("constant level: max depth = level - min DEM", abs(np.nanmax(a6) - (1199.0 - (S.Z0 - S.S_LONG * S.ROWS * S.CS
-                                                                                       + S.S_CROSS * S.CS / 2))) < 0.2,
+    zmin = S.Z0 - S.S_LONG * S.ROWS * S.CS + S.S_CROSS * S.CS / 2
+    check("constant level: max depth = level - min DEM", abs(np.nanmax(a6) - (1199.0 - zmin)) < 0.2,
           f"{np.nanmax(a6):.2f} m")
 
     print("\n7. Compare extents")
@@ -192,6 +244,35 @@ def main(in_qgis=False):
         check("one band only is refused", False)
     except Exception as exc:
         check("one band only is refused", "bands" in str(exc).lower(), str(exc)[:90])
+
+    print("\n10. Prepare DEM and DEM tiles")
+    from osgeo import gdal
+    gdal.UseExceptions()
+    src = gdal.Open(dem)
+    half = src.RasterXSize // 2
+    gdal.Translate(os.path.join(tmp, "gem15_left.tif"), src, srcWin=[0, 0, half, src.RasterYSize])
+    gdal.Translate(os.path.join(tmp, "gem15_right.tif"), src, srcWin=[half, 0, src.RasterXSize - half, src.RasterYSize])
+    tiles = [os.path.join(tmp, "gem15_left.tif"), os.path.join(tmp, "gem15_right.tif")]
+    r10 = processing.run("flooddepth:preparedem",
+                         {"INPUT": tiles, "BUFFER": 0, "CELL": 0, "OUTPUT": os.path.join(tmp, "prepared.tif")})
+    pa, _, _ = _read(r10["OUTPUT"])
+    da, _, _ = _read(dem)
+    check("Prepare DEM merges the tiles back to the DEM", pa.shape == da.shape and
+          float(np.nanmax(np.abs(pa - da))) < 0.01, f"{pa.shape} vs {da.shape}")
+    r11 = processing.run("flooddepth:quickflooddepth", {
+        "EXTENT": ext, "DEM": tiles[0], "DEM_TILES": tiles[1:], "MEMBERS": 0, "COL_EDGE": "#ff0000",
+        "DEPTH_RAMP": 1, "OUT_DIR": os.path.join(tmp, "tiles")})
+    with open(r11["REPORT"], encoding="utf-8") as fh:
+        rep = fh.read()
+    check("map colours from the dialog reach the report", "rgb(255, 0, 0)" in rep and "rgb(253, 231, 37)" in rep)
+    t_a, _, _ = _read(r11["DEPTH"])
+    q_a, _, _ = _read(r2["DEPTH"])
+    same = t_a.shape == q_a.shape and np.allclose(t_a, q_a, equal_nan=True, atol=1e-4)
+    check("DEM given as two tiles gives the same depth as the whole DEM", same,
+          f"mean {np.nanmean(t_a):.3f} vs {np.nanmean(q_a):.3f} m")
+
+    print("\n11. Plugin shell: Raster menu, toolbar button, unload")
+    _shell_checks(prov)
 
     print()
     if FAILURES:

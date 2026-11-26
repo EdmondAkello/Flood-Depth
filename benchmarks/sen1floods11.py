@@ -25,7 +25,7 @@ from collections import defaultdict
 
 import numpy as np
 
-from ..core import imagery as I, raster as R, stats as ST
+from ..core import imagery as IMG, raster as R, stats as ST
 
 CONFIGS = {
     # fully automatic: no band numbers (the chips carry band descriptions B1..B12, VV, VH)
@@ -55,7 +55,7 @@ def run(chip_dir):
             valid_l = np.isfinite(lab) & (lab >= 0)
             truth_share = float((lab[valid_l] == 1).mean()) if valid_l.any() else 0.0
             try:
-                res = I.classify_image([ip], ov, index, None, method, 10, 0, 0.25 if kind == "S2Hand" else 0)
+                res = IMG.classify_image([ip], ov, index, None, method, 10, 0, 0.25 if kind == "S2Hand" else 0)
             except ValueError as exc:
                 msg = str(exc)
                 (refused if ("outside the range" in msg or "No water was found" in msg) else failed).append(
@@ -84,7 +84,10 @@ def run(chip_dir):
 
 def _scores(v):
     tp, fp, fn, tn = [int(x) for x in v]
-    d = lambda a, b: float(a) / b if b else float("nan")
+
+    def d(a, b):
+        return float(a) / b if b else float("nan")
+
     return {"tp": tp, "fp": fp, "fn": fn, "tn": tn, "csi": d(tp, tp + fp + fn), "f1": d(2 * tp, 2 * tp + fp + fn),
             "hit_rate": d(tp, tp + fn), "false_alarm_ratio": d(fp, tp + fp), "bias": d(tp + fp, tp + fn)}
 

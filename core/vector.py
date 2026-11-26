@@ -127,7 +127,6 @@ def polygonize(mask, grid, path, layer="flood_extent", attrs=None, min_cells=0):
 def write_points(path, layer, grid, rows, cols, fields):
     """Cell-centre points with attribute columns {name: array}."""
     ogr = _ogr()
-    import os
     srs = R.srs_from_wkt(grid.wkt)
     drv, ds = _open_for_write(path)
     if ds.GetLayerByName(layer) is not None:

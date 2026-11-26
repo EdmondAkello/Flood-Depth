@@ -11,22 +11,50 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install NumPy, GDAL and SciPy (SciPy is an optional accelerator)
+      - name: Install NumPy, GDAL and SciPy
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends python3-numpy python3-gdal python3-scipy
       - name: Run suites (with SciPy)
         run: bash tools/dev/ci_pure.sh
-      - name: Run suites again without SciPy (the NumPy / GDAL fallbacks)
+      - name: Run suites (NumPy / GDAL fallbacks only)
         run: FLOODDEPTH_NO_SCIPY=1 bash tools/dev/ci_pure.sh
 
-  bandit:
-    name: Bandit security scan
+  qgis:
+    name: QGIS smoke test (${{ matrix.image }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [3.44.15-trixie, 4.2.3-trixie]
+    container: qgis/qgis:${{ matrix.image }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONPATH: /usr/share/qgis/python:/usr/share/qgis/python/plugins
+    steps:
+      - name: Install Git for checkout
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git
+      - uses: actions/checkout@v4
+        with:
+          path: flooddepth
+      - name: Report QGIS version
+        run: python3 -c "from qgis.core import Qgis; print(Qgis.QGIS_VERSION)"
+      - name: Run every tool through Processing, and the plugin shell
+        run: python3 -m flooddepth.tests.qgis_smoke
+
+  lint:
+    name: flake8 and Bandit
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install bandit
-      - run: bandit -q -r . -x ./tests,./tools
+      - run: pip install flake8 bandit
+      - name: flake8 (settings in .flake8)
+        run: flake8 .
+      - name: Bandit (shipped code)
+        run: bandit -q -r . -x ./tests,./tools,./docs,./benchmarks

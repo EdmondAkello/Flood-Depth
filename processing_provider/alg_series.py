@@ -9,7 +9,6 @@ from qgis.core import (
 )
 
 from .alg_quick import QuickFloodDepthAlgorithm
-from .base import RasterStyle
 
 
 class FloodSeriesAlgorithm(QuickFloodDepthAlgorithm):
@@ -61,7 +60,7 @@ class FloodSeriesAlgorithm(QuickFloodDepthAlgorithm):
             if r["status"] != "ok":
                 feedback.pushWarning(f"{r['date']}: {r['status']}")
         o = res["outputs"]
-        self.load_raster(context, o["max_depth"], "Maximum observed depth (m)", RasterStyle("depth"))
+        self.load_raster(context, o["max_depth"], "Maximum observed depth (m)", self.depth_style(opt))
         self.load_raster(context, o["dates_flooded"], "Dates flooded", None)
         e = res["envelope"]
         feedback.pushInfo(f"Flooded on any date {e['area_km2']:.3f} km2; on every date "

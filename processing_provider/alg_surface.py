@@ -4,7 +4,7 @@
 
 import numpy as np
 from qgis.core import (
-    QgsProcessing,
+    Qgis,
     QgsProcessingException,
     QgsProcessingParameterEnum,
     QgsProcessingParameterFeatureSource,
@@ -48,16 +48,16 @@ class SurfaceFromExtentAlgorithm(FloodDepthAlgorithm):
 
     def initAlgorithm(self, config=None):
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "EXTENT", "Flood extent polygons", [QgsProcessing.TypeVectorPolygon], optional=True))
+            "EXTENT", "Flood extent polygons", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer(
             "MASK", "...or a flood mask raster (1 = flood, 2 = permanent water)", optional=True))
         self.addParameter(QgsProcessingParameterRasterLayer("DEM", "DEM"))
         self.addParameter(QgsProcessingParameterRasterLayer("HAND", "HAND raster (optional: HAND method)",
                                                             optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "PERM_POLYS", "Permanent water polygons", [QgsProcessing.TypeVectorPolygon], optional=True))
+            "PERM_POLYS", "Permanent water polygons", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.addParameter(QgsProcessingParameterFeatureSource(
-            "AOI", "Area of interest", [QgsProcessing.TypeVectorPolygon], optional=True))
+            "AOI", "Area of interest", [Qgis.ProcessingSourceType.VectorPolygon], optional=True))
         self.number("CELL", "Analysis cell size (m; 0 = DEM resolution)", "double", 0.0, 0.0, adv=True)
         self.addParameter(self.advanced(QgsProcessingParameterEnum(
             "INTERP", "Surface interpolation", ["Inverse distance from the flood edge (GDAL)", "Nearest flood edge (FwDET v1)"],
@@ -74,7 +74,7 @@ class SurfaceFromExtentAlgorithm(FloodDepthAlgorithm):
         self.addParameter(QgsProcessingParameterRasterDestination("WSE", "Water surface"))
         self.addParameter(QgsProcessingParameterRasterDestination("DEPTH", "Flood depth"))
         self.addParameter(QgsProcessingParameterVectorDestination(
-            "WATERLINE", "Waterline cells (used / dropped)", QgsProcessing.TypeVectorPoint, optional=True,
+            "WATERLINE", "Waterline cells (used / dropped)", Qgis.ProcessingSourceType.VectorPoint, optional=True,
             createByDefault=False))
 
     def processAlgorithm(self, parameters, context, feedback):
@@ -153,14 +153,14 @@ class SurfaceFromExtentAlgorithm(FloodDepthAlgorithm):
                           f"{neg:,} cells above the surface set to 0.")
         wp = self.parameterAsOutputLayer(parameters, "WSE", context)
         dp = self.parameterAsOutputLayer(parameters, "DEPTH", context)
-        R.write_raster(wp, surf, grid, -9999.0, "Float32", {"CONTENT": "water surface" if not hand_path
-                                                             else "water height above drainage"})
+        content = "water surface" if not hand_path else "water height above drainage"
+        R.write_raster(wp, surf, grid, -9999.0, "Float32", {"CONTENT": content})
         R.write_raster(dp, depth, grid, -9999.0, "Float32", {"CONTENT": "flood depth (m)"})
         out = {"WSE": wp, "DEPTH": dp}
         if parameters.get("WATERLINE"):
             lp = self.parameterAsOutputLayer(parameters, "WATERLINE", context)
             rr, cc = np.nonzero(used | dropped)
-            V.write_points(lp, "waterline", grid, rr, cc, {"used": used[rr, cc].astype("int32"),
-                                                          "z": elev[rr, cc].astype("float64")})
+            V.write_points(lp, "waterline", grid, rr, cc,
+                           {"used": used[rr, cc].astype("int32"), "z": elev[rr, cc].astype("float64")})
             out["WATERLINE"] = lp
         return out
