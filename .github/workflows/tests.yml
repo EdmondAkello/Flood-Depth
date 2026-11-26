@@ -42,6 +42,8 @@ jobs:
           path: flooddepth
       - name: Report QGIS version
         run: python3 -c "from qgis.core import Qgis; print(Qgis.QGIS_VERSION)"
+      - name: Pure suites with this image's NumPy 2 and GDAL
+        run: PY=python3 bash flooddepth/tools/dev/ci_pure.sh
       - name: Run every tool through Processing, and the plugin shell
         run: python3 -m flooddepth.tests.qgis_smoke
 

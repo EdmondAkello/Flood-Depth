@@ -20,7 +20,7 @@ from qgis.core import (
 GUIDE_SECTIONS = {"quickflooddepth": "quick", "flooddepthseries": "series", "preparedem": "prepare",
                   "classify_inundation": "steps", "supervisedwater": "steps", "estimate_stage_dem_boundary": "steps",
                   "compute_flood_depth": "steps", "compute_constant_stage_depth": "steps",
-                  "compareextents": "compare"}
+                  "compareextents": "compare", "scene3d": "scene3d"}
 
 
 def _number_type(kind):

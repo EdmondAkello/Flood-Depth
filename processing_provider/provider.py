@@ -19,6 +19,7 @@ from .alg_surface import SurfaceFromExtentAlgorithm
 from .alg_depth import DepthFromSurfaceAlgorithm, DepthConstantLevelAlgorithm
 from .alg_compare import CompareExtentsAlgorithm
 from .alg_prepare_dem import PrepareDemAlgorithm
+from .alg_scene3d import Scene3dAlgorithm
 
 
 class FloodDepthProvider(QgsProcessingProvider):
@@ -26,7 +27,8 @@ class FloodDepthProvider(QgsProcessingProvider):
     def loadAlgorithms(self):
         for alg in (QuickFloodDepthAlgorithm(), FloodSeriesAlgorithm(), PrepareDemAlgorithm(),
                     ClassifyWaterAlgorithm(), SupervisedWaterAlgorithm(), SurfaceFromExtentAlgorithm(),
-                    DepthFromSurfaceAlgorithm(), DepthConstantLevelAlgorithm(), CompareExtentsAlgorithm()):
+                    DepthFromSurfaceAlgorithm(), DepthConstantLevelAlgorithm(), CompareExtentsAlgorithm(),
+                    Scene3dAlgorithm()):
             self.addAlgorithm(alg)
 
     def id(self):

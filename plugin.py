@@ -30,6 +30,8 @@ TOOLS = (
      "Several image dates -> depth per date, maximum depth and dates flooded", "/mIconTemporal.svg"),
     ("flooddepth:preparedem", "Prepare DEM…",
      "Merge DEM tiles, clip to the area and reproject to UTM (bilinear), with a DEM check", "/mActionAddRasterLayer.svg"),
+    ("flooddepth:scene3d", "Export 3D Scene…",
+     "An interactive 3D scene (HTML) of a finished run: terrain, image, water by depth, your layers", "/mActionNew3DMap.svg"),
     (None, None, None, None),
     ("flooddepth:classify_inundation", "Classify Water from Imagery…",
      "Step 1 on its own: a water mask and polygons from the image", "/mActionCalculateRaster.svg"),

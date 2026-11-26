@@ -31,6 +31,7 @@ PERMANENT_RGB = (120, 80, 160)       # same as the water_mask colour table
 OUTLINE_RGB = (8, 37, 78)
 NODATA_RGB = (205, 205, 205)
 DOUBTFUL_RGB = (231, 138, 195)      # evidence class 5 (same as evidence.tif)
+MUD_RGB = (140, 98, 57)             # evidence class 3: erosion / deposition (mud, debris)
 
 # depth ramps offered for the maps (stops as fractions of the ramp top)
 DEPTH_RAMPS = {
@@ -64,13 +65,15 @@ class MapStyle(object):
     depth_ramp: a DEPTH_RAMPS key; depth_max: the depth (m) at the dark end
     of the ramp; permanent / edge / doubtful / nodata: '#rrggbb' or (r, g, b)."""
 
-    def __init__(self, depth_ramp="blues", depth_max=3.0, permanent=None, edge=None, doubtful=None, nodata=None):
+    def __init__(self, depth_ramp="blues", depth_max=3.0, permanent=None, edge=None, doubtful=None, nodata=None,
+                 mud=None):
         self.depth_ramp = depth_ramp if depth_ramp in DEPTH_RAMPS else "blues"
         self.depth_max = float(depth_max) if depth_max and depth_max > 0 else 3.0
         self.permanent = _rgb(permanent, PERMANENT_RGB)
         self.edge = _rgb(edge, OUTLINE_RGB)
         self.doubtful = _rgb(doubtful, DOUBTFUL_RGB)
         self.nodata = _rgb(nodata, NODATA_RGB)
+        self.mud = _rgb(mud, MUD_RGB)
 
     @classmethod
     def from_dict(cls, d):
@@ -79,7 +82,15 @@ class MapStyle(object):
     def as_dict(self):
         hx = "#{:02x}{:02x}{:02x}".format
         return {"depth_ramp": self.depth_ramp, "depth_max": self.depth_max, "permanent": hx(*self.permanent),
-                "edge": hx(*self.edge), "doubtful": hx(*self.doubtful), "nodata": hx(*self.nodata)}
+                "edge": hx(*self.edge), "doubtful": hx(*self.doubtful), "nodata": hx(*self.nodata),
+                "mud": hx(*self.mud)}
+
+    def evidence_colors(self):
+        """Evidence classes -> (r, g, b): the evidence.tif palette with the user's colours."""
+        from .uncertainty import EVIDENCE_COLORS
+        out = {k: tuple(v[:3]) for k, v in EVIDENCE_COLORS.items() if k != 255}
+        out[3], out[5] = self.mud, self.doubtful
+        return out
 
     def depth_stops(self):
         return [(f * self.depth_max, c) for f, c in DEPTH_RAMPS[self.depth_ramp]]
@@ -352,7 +363,7 @@ def _svg_map(b64, w, h, metres_per_px, inset=None, label=""):
 
 
 def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=None, max_px=MAP_PX,
-         doubtful=None, style=None):
+         doubtful=None, style=None, evidence=None):
     """Build the report maps. Returns dict with 'depth' (svg), optional 'prob' (svg),
     'backdrop' (label) and 'frame' (description)."""
     st = MapStyle.from_dict(style)
@@ -421,6 +432,19 @@ def maps(depth, flood, dem, grid, valid=None, other=None, prob=None, backdrop=No
         edge = _outline(fmaj) if step > 1 else _outline(fany)
         pimg = _compose(base, common + [(pm, pcol, 0.9), (edge, st.edge, 0.6)])
         out["prob"] = _svg_map(_png_b64(pimg), dw, dh, mpp, None, "Flood probability map")
+    if evidence is not None:
+        ev = np.asarray(evidence)[sl]
+        layers, shown = [], []
+        for code, col in st.evidence_colors().items():
+            m = (_block(ev == code, step, "frac") >= 0.5) & fany
+            if m.any():
+                layers.append((m, col, 0.9))
+                shown.append(code)
+        if len(shown) > 1 or any(c in (2, 3) for c in shown):
+            edge = _outline(fmaj) if step > 1 else _outline(fany)
+            eimg = _compose(base, common + layers + [(edge, st.edge, 0.6)])
+            out["evidence"] = _svg_map(_png_b64(eimg), dw, dh, mpp, None, "Flood evidence map")
+            out["evidence_classes"] = shown
     return out
 
 
@@ -578,7 +602,7 @@ LIMITS = [
 # ---------------------------------------------------------------- the report
 
 def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=None, other=None,
-                 prob=None, backdrop=None, doubtful=None, style=None):
+                 prob=None, backdrop=None, doubtful=None, style=None, evidence=None):
     st = MapStyle.from_dict(style)
     d = info.get("depth", {})
     cls = info.get("classification")
@@ -613,6 +637,12 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
     h += [f"<div class='kpi'><b>{html.escape(v)}</b><span>{html.escape(n)}</span>"
           + (f"<small>{html.escape(sm)}</small>" if sm else "") + "</div>" for n, v, sm in k]
     h.append("</div>")
+    sc = info.get("scene3d")
+    if sc:
+        h.append("<div class='note noprint'><b>Interactive 3D scene:</b> <a href='scene3d.html'>open scene3d.html</a> - "
+                 f"the terrain ({html.escape(str(sc.get('drape', '')))}) with the water surface coloured by depth; "
+                 "rotate, change the vertical exaggeration, click to read levels and depths, save views and "
+                 "images. Opens offline in Chrome, Edge, Firefox or Safari.</div>")
 
     res, inp = group_notes(info.get("warnings"), (cls or {}).get("notes"))
     if res:
@@ -624,7 +654,7 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
     if depth is not None and grid is not None and flood is not None:
         try:
             m = maps(depth, flood, dem, grid, valid=valid, other=other, prob=prob, backdrop=backdrop,
-                     doubtful=doubtful, style=st)
+                     doubtful=doubtful, style=st, evidence=evidence)
             fw, fhh = m["frame_km"]
             sw = [("flood edge", f"background:rgb{st.edge}")]
             if other is not None and other.any():
@@ -644,6 +674,17 @@ def write_report(path, info, depth=None, flood=None, dem=None, grid=None, valid=
                          + _gradient_legend(PROB_RAMP, "", "Flood probability (share of ensemble members)", " ")
                          + "<p class='sub'>Where the probability is low the extent itself is uncertain (threshold, "
                          "edge position); depths there matter less than whether it flooded at all.</p></figure>")
+            if "evidence" in m:
+                from .uncertainty import EVIDENCE
+                ec = st.evidence_colors()
+                sw_e = [(EVIDENCE[c], f"background:rgb{ec[c]}") for c in m["evidence_classes"]]
+                h.append("<figure class='prob'>" + m["evidence"] + _swatches(sw_e)
+                         + "<p class='sub'>What each flooded cell is based on (evidence.tif). "
+                         + ("Erosion / deposition is where the flood left bare soil, mud or debris: the main "
+                            "remnant of a flash flood after the water drained. Depths there are those of the water "
+                            "that passed, on the pre-event ground."
+                            if 3 in m["evidence_classes"] else
+                            "Doubtful cells lie above the estimated water surface.") + "</p></figure>")
             h.append("</div></section>")
         except Exception as exc:  # the report must not fail the run
             h.append(f"<section class='card'><p class='sub'>Maps not drawn: {html.escape(str(exc))}</p></section>")

@@ -64,7 +64,7 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             "correlated DEM error and extent perturbation gives depth P10 / P50 / P90 and flood probability.\n\n"
             "<b>Outputs</b> (output folder): depth.tif, flood_extent.gpkg, evidence.tif, wse.tif, "
             "depth_p10/p50/p90.tif, flood_probability.tif, water_mask.tif, report.html (print it to PDF), "
-            "run.json.\n\n"
+            "scene3d.html (interactive 3D: terrain, image, water by depth; offline), run.json.\n\n"
             "Terrain-based estimates, not a hydraulic model: read the report's warnings.")
 
     def initAlgorithm(self, config=None):
@@ -101,6 +101,8 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
         self.addParameter(QgsProcessingParameterRasterLayer("HAND", "HAND raster (HAND method)", optional=True))
         self.number("MEMBERS", "Uncertainty ensemble members (0 = off)", "int", 20, 0, 200)
         self.number("DEM_SIGMA", "DEM vertical error, 1 sigma (m; 0 = from the DEM name)", "double", 0.0, 0.0, 50.0)
+        self.addParameter(QgsProcessingParameterBoolean(
+            "SCENE3D", "Interactive 3D scene (scene3d.html: terrain, image and the water by depth)", defaultValue=True))
         # advanced
         self.addParameter(self.advanced(QgsProcessingParameterEnum(
             "INDEX", "Water index", ["Automatic", "NDWI + confident MNDWI (green, NIR, SWIR1)",
@@ -141,7 +143,8 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
                     adv=True)
         for key, label, default in (("COL_PERM", "permanent water", "#7850a0"),
                                     ("COL_EDGE", "flood edge", "#08254e"),
-                                    ("COL_DOUBT", "doubtful cells (ground above the water surface)", "#e78ac3")):
+                                    ("COL_DOUBT", "doubtful cells (ground above the water surface)", "#e78ac3"),
+                                    ("COL_MUD", "mud and debris (flood-trace erosion / deposition)", "#8c6239")):
             self.addParameter(self.advanced(QgsProcessingParameterColor(
                 key, f"Map colours: {label}", defaultValue=QColor(default), opacityEnabled=False)))
         self.addParameter(self.advanced(QgsProcessingParameterBoolean(
@@ -150,6 +153,7 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
         self.addOutput(QgsProcessingOutputRasterLayer("DEPTH", "Flood depth"))
         self.addOutput(QgsProcessingOutputVectorLayer("FLOOD_EXTENT", "Flood extent", Qgis.ProcessingSourceType.VectorPolygon))
         self.addOutput(QgsProcessingOutputFile("REPORT", "Run report (HTML)"))
+        self.addOutput(QgsProcessingOutputFile("SCENE3D", "3D scene (HTML)"))
 
     def options(self, parameters, context, feedback):
         """QuickOptions from the dialog (shared with the time-series tool)."""
@@ -206,7 +210,8 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
             dem_corr_m=self.parameterAsDouble(parameters, "CORR", context),
             erosion_sigma=self.parameterAsDouble(parameters, "ERO_SIGMA", context),
             seed=self.parameterAsInt(parameters, "RNG_SEED", context),
-            map_style=self.map_style(parameters, context))
+            map_style=self.map_style(parameters, context),
+            scene3d=self.parameterAsBoolean(parameters, "SCENE3D", context) if "SCENE3D" in parameters else True)
         if method == "hand" and not opt.hand_path:
             raise QgsProcessingException("The HAND method needs a HAND raster.")
         if mode == "trace" and not opt.pre_paths:
@@ -216,7 +221,7 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
     def map_style(self, parameters, context):
         st = {"depth_ramp": RAMPS[self.parameterAsEnum(parameters, "DEPTH_RAMP", context)],
               "depth_max": self.parameterAsDouble(parameters, "DEPTH_MAX", context)}
-        for key, name in (("COL_PERM", "permanent"), ("COL_EDGE", "edge"), ("COL_DOUBT", "doubtful")):
+        for key, name in (("COL_PERM", "permanent"), ("COL_EDGE", "edge"), ("COL_DOUBT", "doubtful"), ("COL_MUD", "mud")):
             c = self.parameterAsColor(parameters, key, context)
             if c is not None and c.isValid():
                 st[name] = c.name()
@@ -254,5 +259,7 @@ class QuickFloodDepthAlgorithm(FloodDepthAlgorithm):
         d = info.get("depth", {})
         feedback.pushInfo(f"Flooded {d.get('area_km2', 0):.3f} km2, mean depth {d.get('mean_m', float('nan')):.2f} m, "
                           f"P90 {d.get('p90_m', float('nan')):.2f} m. Report: {o['report']}")
+        if o.get("scene3d"):
+            feedback.pushInfo(f"3D scene: {o['scene3d']}")
         return {"OUT_DIR": out_dir, "DEPTH": o["depth"], "FLOOD_EXTENT": o["extent"] + "|layername=flood_extent",
-                "REPORT": o["report"]}
+                "REPORT": o["report"], "SCENE3D": o.get("scene3d") or ""}

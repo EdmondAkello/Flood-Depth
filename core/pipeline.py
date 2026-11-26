@@ -35,6 +35,7 @@ from . import stats as ST
 from . import vector as V
 from . import uncertainty as U
 from . import dem as DM
+from .report import MapStyle
 
 VERSION = "0.4.1"
 
@@ -85,6 +86,8 @@ class QuickOptions:
     erosion_sigma: float = 1.0
     seed: int = 42
     map_style: dict = field(default_factory=dict)     # report map colours (report.MapStyle keys)
+    scene3d: bool = True                # interactive 3D scene (scene3d.html)
+    scene_max_vertices: int = 600_000
 
 
 def _progress(cb, lo, hi):
@@ -354,7 +357,7 @@ def run_quick(opt, progress=None, log=print):
                     "surface": np.nan_to_num(surf[rr, cc]).astype("float64")})
     epath = os.path.join(opt.out_dir, "evidence.tif")
     R.write_raster(epath, evid, grid, 255, "Byte", dict(tags, VALUES="; ".join(f"{k} {v}" for k, v in U.EVIDENCE.items())),
-                   color_table=U.EVIDENCE_COLORS)
+                   color_table=evidence_palette(opt.map_style))
     outs = {"wse": wpath, "depth": dpath, "extent": gpkg, "water_mask": info.get("water_mask"), "evidence": epath}
     if unc is not None:
         for key, name, lab in (("prob", "flood_probability.tif", "share of ensemble members flooded"),
@@ -374,9 +377,32 @@ def run_quick(opt, progress=None, log=print):
             return IMG.backdrop(_sc, g)
     else:
         bd = None
+    if opt.scene3d:
+        prog(0.97, "3D scene")
+        try:
+            from .scene3d import write_scene
+            lines = []
+            if opt.seed_wkts:
+                lines.append(("Connectivity features", "Connectivity features", opt.seed_wkts, opt.seed_crs, "#c2185b"))
+            if opt.aoi_wkts:
+                lines.append(("Area of interest", "Area of interest", opt.aoi_wkts, opt.aoi_crs, "#e39a26"))
+            ext_w = opt.extent_wkts if opt.extent_wkts else _layer_wkts(gpkg, "flood_extent")
+            info["scene3d"] = write_scene(
+                os.path.join(opt.out_dir, "scene3d.html"), grid, dem, flood, np.where(flood, dem + depth, np.nan), depth,
+                evidence=evid,
+                other=other, backdrop=bd, style=opt.map_style, extent_wkts=ext_w,
+                extent_crs=opt.extent_crs if opt.extent_wkts else grid.wkt, lines=lines,
+                title="Flood depth - " + (os.path.basename(os.path.normpath(opt.out_dir)) or "3D scene"),
+                max_vertices=opt.scene_max_vertices)
+            info["outputs"]["scene3d"] = info["scene3d"]["path"]
+            say(f"3D scene: scene3d.html ({info['scene3d']['size_mb']} MB, terrain at "
+                f"{info['scene3d']['cell_m']:g} m, {info['scene3d']['drape']}).")
+        except Exception as exc:  # noqa: BLE001 - the 3D scene is a convenience; the run stands without it
+            W.append(f"The 3D scene could not be written: {exc}")
+        lap("3D scene")
     write_report(rpath, info, depth=depth, flood=flood, dem=dem, grid=grid, valid=valid, other=other,
                  doubtful=evid == 5,
-                 prob=None if unc is None else unc["prob"], backdrop=bd, style=opt.map_style)
+                 prob=None if unc is None else unc["prob"], backdrop=bd, style=opt.map_style, evidence=evid)
     info["outputs"]["report"] = rpath
     lap("report")
     with open(os.path.join(opt.out_dir, "run.json"), "w", encoding="utf-8") as f:
@@ -412,6 +438,26 @@ def permanent_from_raster(arr, rule="auto"):
         return fin & (a >= t), f"value >= {t:g}"
     codes = [float(x) for x in rule.replace(";", ",").split(",") if x.strip()]
     return fin & np.isin(a, codes), "values " + ", ".join(f"{c:g}" for c in codes)
+
+
+def evidence_palette(style):
+    """evidence.tif colour table with the user's map colours (mud, doubtful)."""
+    pal = dict(U.EVIDENCE_COLORS)
+    for k, rgb in MapStyle.from_dict(style).evidence_colors().items():
+        pal[k] = tuple(rgb) + (255,)
+    return pal
+
+
+def _layer_wkts(path, layer):
+    """WKT of every feature of a GeoPackage layer ([] when it cannot be read)."""
+    try:
+        ds = V._ogr().Open(str(path))
+        lay = ds.GetLayerByName(layer) if ds is not None else None
+        out = [f.GetGeometryRef().ExportToWkt() for f in lay] if lay is not None else []
+        ds = None
+        return out
+    except (RuntimeError, AttributeError):
+        return []
 
 
 def image_crop(opt):
